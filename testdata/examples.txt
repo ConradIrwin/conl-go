@@ -1,0 +1,131 @@
+c = """asd ; comment?
+    false
+d = 1.5
+
+---
+{"c":"false","d":"1.5"}
+
+===
+a = b
+---
+{"a":"b"}
+
+===
+; test
+---
+{}
+
+===
+a =
+ = 1
+ = 2
+---
+{"a":["1","2"]}
+
+===
+"\{00000000}" = "\{00000000}"
+---
+{"\u0000":"\u0000"}
+
+===
+a =;b
+  b = c
+---
+{"a":{"b":"c"}}
+
+===
+a = """json ;lol
+  {"":""}
+---
+{"a":"{\"\":\"\"}"}
+
+===
+a b#c = a#c = b;d
+---
+{"a b#c":"a#c = b"}
+
+===
+" \t\r\n\\\"" = oh "wow"
+---
+{" \t\r\n\\\"":"oh \"wow\""}
+
+===
+"hello";world
+  = "oh yeah";!
+---
+{"hello":["oh yeah"]}
+
+===
+=a
+= b
+---
+["a","b"]
+
+===
+a = """bash
+
+  #!/usr/bin/env bash
+
+  echo "hello world"; exit 1
+
+---
+{"a":"#!/usr/bin/env bash\n\necho \"hello world\"; exit 1"}
+
+===
+a = """bash
+
+  #!/usr/bin/env bash
+
+  echo "hello world"; exit 1
+
+b = c
+
+---
+{"a":"#!/usr/bin/env bash\n\necho \"hello world\"; exit 1","b":"c"}
+
+===
+a = b␊c = d␊
+e = f
+---
+{"a":"b","c":"d","e":"f"}
+
+===
+a = """ bash_two
+    ;
+
+---
+{"a":";"}
+
+===
+a
+; configure a
+  b = c
+ ; d = e
+  f = g
+---
+{"a":{"b":"c","f":"g"}}
+
+===
+=
+ =
+= a
+---
+[[null],"a"]
+
+===
+a =
+b = c
+---
+{"a":null,"b":"c"}
+
+===
+a
+  ;
+---
+{"a":null}
+
+===
+a = ; empty
+c = ""
+---
+{"a":null,"c":""}

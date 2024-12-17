@@ -1,0 +1,99 @@
+ = a
+---
+1: unexpected indent
+
+===
+= a
+ = a
+---
+2: unexpected indent
+
+===
+=
+ = a
+␉= a
+---
+3: unexpected indent
+
+===
+a = "o
+---
+1: unclosed quotes
+
+===
+a = "\{"
+---
+1: invalid escape code: \{
+
+===
+a = "\{g}"
+---
+1: invalid escape code: \{g}
+
+===
+a = ?
+---
+1: invalid UTF-8
+
+===
+? = a
+---
+1: invalid UTF-8
+
+===
+b = a # ???
+---
+1: invalid UTF-8
+
+===
+b = """bash?
+---
+1: invalid UTF-8
+
+===
+b = """bash
+  ?
+---
+2: invalid UTF-8
+
+===
+b = """ bash
+---
+1: missing value
+
+===
+b = "\"\ \ash"
+---
+1: invalid escape code: \␣
+
+===
+b = "\{000000001}"
+---
+1: invalid escape code: \{000000001}
+
+===
+b = "\{110000}"
+---
+1: invalid escape code: \{110000}
+
+===
+b = "\{D800}"
+---
+1: invalid escape code: \{D800}
+
+===
+"a\{}" = a
+---
+1: invalid escape code: \{}
+
+===
+b = a
+= b
+---
+2: unexpected list item
+
+===
+= a
+a = b
+---
+2: unexpected map key
