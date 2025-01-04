@@ -1,0 +1,120 @@
+; basic
+root
+  keys
+    username = \w+
+---
+username = * ; expected username to match \w+
+
+===
+; two errors
+root
+  keys
+    username = \w+
+---
+username = * ; expected username to match \w+
+password = example ; unexpected key password
+
+===
+; missing required key
+root
+  required keys
+    username = \w+
+---
+password = example ; unexpected key password; expected key username
+===
+; multiple allowed keys ok
+root
+  keys
+    username = \w+
+    code .* = [0-9]+
+---
+code home = 1234
+===
+; multiple allowed keys with error
+
+root
+  keys
+    username = \w+
+    code .* = [0-9]+
+---
+code home = 123r ; expected code home to match [0-9]+
+===
+; empty
+root
+  no value = true
+---
+
+===
+; referenced map
+
+test
+  keys
+    username = \w+
+    code .* = [0-9]+
+root
+  keys
+    test = <test>
+---
+test
+  code home = 123r ; expected code home to match [0-9]+
+
+===
+; one of scalars
+test
+  one of
+    = a
+    = b
+    = c
+root
+  keys
+    test .* = <test>
+---
+test a = a
+test b = b
+test d = d ; expected test d to match a, b or c
+
+===
+; one of required keys
+a
+  required keys
+    type = a
+b
+  required keys
+    type = b
+test
+  one of
+    = <a>
+    = <b>
+root
+  keys
+    test .* = <test>
+---
+test a
+  type = a
+test b
+  type = b
+test c
+  type = c ; expected type to match a or b
+
+===
+; one of required keys
+a
+  required keys
+    a = true
+b
+  required keys
+    b = true
+test
+  one of
+    = <a>
+    = <b>
+root
+  keys
+    test .* = <test>
+---
+test a
+  a = true
+test b
+  b = true
+test c ; missing required key a or b
+  c = true ; unexpected key c

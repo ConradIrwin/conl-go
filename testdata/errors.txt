@@ -16,6 +16,13 @@
 3: unexpected indent
 
 ===
+= """
+  alpha
+ beta
+---
+3: unexpected indent
+
+===
 a = "o
 ---
 1: unclosed quotes

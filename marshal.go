@@ -524,10 +524,20 @@ func unmarshalArray(nextToken func() (int, Token), v reflect.Value) error {
 }
 
 func setBasicValue(lno int, s string, v reflect.Value) error {
+	if _, ok := v.Interface().(encoding.TextUnmarshaler); ok {
+		if v.Kind() == reflect.Ptr && v.IsNil() {
+			v.Set(reflect.New(v.Type().Elem()))
+		}
+		if err := v.Interface().(encoding.TextUnmarshaler).UnmarshalText([]byte(s)); err != nil {
+			return fmt.Errorf("%d: %w", lno, err)
+		}
+		return nil
+	}
 	if tu, ok := v.Addr().Interface().(encoding.TextUnmarshaler); ok {
 		if err := tu.UnmarshalText([]byte(s)); err != nil {
 			return fmt.Errorf("%d: %w", lno, err)
 		}
+		return nil
 	}
 	switch v.Kind() {
 	case reflect.String:
