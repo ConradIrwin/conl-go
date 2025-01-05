@@ -5,8 +5,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-
-	"github.com/davecgh/go-spew/spew"
 )
 
 type mapEntry struct {
@@ -52,9 +50,9 @@ func parseDoc(input string) *conlValue {
 
 		case NoValue:
 			if len(current.Map) > 0 {
-				current.Map[len(current.Map)-1].Value = conlValue{Lno: lno}
+				current.Map[len(current.Map)-1].Value = conlValue{Lno: current.Map[len(current.Map)-1].Lno}
 			} else {
-				current.List[len(current.List)-1].Value = conlValue{Lno: lno}
+				current.List[len(current.List)-1].Value = conlValue{Lno: current.List[len(current.List)-1].Lno}
 			}
 
 		case Indent:
@@ -168,8 +166,7 @@ type SchemaNode struct {
 	Pattern *schemaValue `conl:"pattern"`
 	Hint    string       `conl:"hint"`
 
-	NoValue bool           `conl:"no value"`
-	OneOf   []*schemaValue `conl:"one of"`
+	OneOf []*schemaValue `conl:"one of"`
 
 	Keys         map[*schemaValue]*schemaValue `conl:"keys"`
 	RequiredKeys map[*schemaValue]*schemaValue `conl:"required keys"`
@@ -195,13 +192,9 @@ func (n *SchemaNode) Resolve(s Schema, name string, seen []string) error {
 	}
 	count := sumIf(n.Pattern != nil,
 		n.OneOf != nil,
-		n.NoValue,
 		n.Keys != nil || n.RequiredKeys != nil,
 		n.Items != nil || n.RequiredItems != nil)
 
-	if count == 0 {
-		return fmt.Errorf("invalid schema: %v matches nothing", name)
-	}
 	if count > 1 {
 		return fmt.Errorf("invalid schema: %v must have only one of pattern, enum, (required) keys, or (required) items", name)
 	}
@@ -232,7 +225,7 @@ func (n *SchemaNode) Resolve(s Schema, name string, seen []string) error {
 		}
 	}
 	if n.Items != nil {
-		if err := n.Pattern.Resolve(s, seen); err != nil {
+		if err := n.Items.Resolve(s, seen); err != nil {
 			return err
 		}
 	}
@@ -264,6 +257,7 @@ type ValidationError struct {
 	Key           string
 	ExpectedMatch []string
 	RequiredKey   []string
+	RequiredItem  string
 	Unexpected    string
 	Err           string
 	Lno           int
@@ -295,6 +289,9 @@ func (ve *ValidationError) Error() string {
 	case ve.RequiredKey != nil:
 		return fmt.Sprintf("%d: missing required key %v", ve.Lno, joinWithOr(ve.RequiredKey))
 
+	case ve.RequiredItem != "":
+		return fmt.Sprintf("%d: missing required list item %v", ve.Lno, ve.RequiredItem)
+
 	case ve.Unexpected != "":
 		return fmt.Sprintf("%d: unexpected %v", ve.Lno, ve.Unexpected)
 
@@ -304,7 +301,6 @@ func (ve *ValidationError) Error() string {
 }
 
 func mergeErrors(a, b []ValidationError) []ValidationError {
-	spew.Dump(a, b)
 	merged := make([]ValidationError, 0)
 	aMap := make(map[int]ValidationError)
 
@@ -318,6 +314,7 @@ func mergeErrors(a, b []ValidationError) []ValidationError {
 				Key:           errA.Key,
 				ExpectedMatch: append(errB.ExpectedMatch, errA.ExpectedMatch...),
 				RequiredKey:   append(errB.RequiredKey, errA.RequiredKey...),
+				RequiredItem:  errA.RequiredItem,
 				Unexpected:    errA.Unexpected,
 				Err:           errA.Err,
 				Lno:           errA.Lno,
@@ -369,7 +366,7 @@ func (n *SchemaNode) Validate(s Schema, val *conlValue, key string) (errors []Va
 
 	if n.Keys != nil || n.RequiredKeys != nil {
 		seenRequired := make(map[*schemaValue]bool)
-		if val.Map == nil {
+		if val.Scalar != nil || val.List != nil {
 			errors = append(errors,
 				ValidationError{
 					Lno:           val.Lno,
@@ -418,28 +415,58 @@ func (n *SchemaNode) Validate(s Schema, val *conlValue, key string) (errors []Va
 			}
 		}
 		if len(requiredErrors) > 0 {
-			spew.Dump(".><")
-			spew.Dump(requiredErrors)
 			return requiredErrors
 		}
-		spew.Dump(".<>")
-		spew.Dump(requiredErrors)
 		return errors
 	}
 
-	if n.NoValue {
-		if val.List != nil || val.Map != nil || val.Scalar != nil {
+	if n.Items != nil || n.RequiredItems != nil {
+		if val.Scalar != nil || val.Map != nil {
 			errors = append(errors,
 				ValidationError{
 					Lno:           val.Lno,
 					Key:           key,
-					ExpectedMatch: []string{"no value"},
+					ExpectedMatch: []string{"map"},
 				})
+			return errors
+		}
+		for i, valueMatcher := range n.RequiredItems {
+			if i < len(val.List) {
+				errors = append(errors, valueMatcher.Validate(s, &val.List[i].Value, "")...)
+			}
+		}
+		if len(n.RequiredItems) > len(val.List) {
+			errors = append(errors, ValidationError{
+				Lno:          val.Lno,
+				Key:          key,
+				RequiredItem: fmt.Sprintf("%s", n.RequiredItems[len(val.List)]),
+			})
+		}
+		if n.Items == nil && len(val.List) > len(n.RequiredItems) {
+			errors = append(errors, ValidationError{
+				Lno:        val.List[len(n.RequiredItems)].Lno,
+				Key:        key,
+				Unexpected: "list item",
+			})
+		}
+		if n.Items != nil {
+			for i := len(n.RequiredItems); i < len(val.List); i++ {
+				errors = append(errors, n.Items.Validate(s, &val.List[i].Value, "")...)
+			}
 		}
 		return errors
 	}
 
-	panic("unhandled")
+	if val.List != nil || val.Map != nil || val.Scalar != nil {
+		errors = append(errors,
+			ValidationError{
+				Lno:           val.Lno,
+				Key:           key,
+				ExpectedMatch: []string{"no value"},
+			})
+	}
+	return errors
+
 }
 
 func (s Schema) Validate(input string) []ValidationError {

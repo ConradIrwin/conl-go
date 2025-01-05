@@ -15,12 +15,19 @@ username = * ; expected username to match \w+
 password = example ; unexpected key password
 
 ===
+; empty
+root
+  keys
+    username = \w+
+---
+
+===
 ; missing required key
 root
   required keys
     username = \w+
 ---
-password = example ; unexpected key password; expected key username
+password = example ; unexpected key password; missing required key username
 ===
 ; multiple allowed keys ok
 root
@@ -40,8 +47,31 @@ root
 code home = 123r ; expected code home to match [0-9]+
 ===
 ; empty
+test
+  keys
 root
-  no value = true
+  keys
+    test = <test>
+---
+test
+
+===
+; empty failure
+test
+  keys
+root
+  keys
+    test .* = <test>
+---
+test 1 = a ; expected test 1 to match no value
+test 2 ; expected test 2 to match no value
+  = a
+
+===
+; empty doc
+root
+  keys
+    test = test
 ---
 
 ===
@@ -118,3 +148,116 @@ test b
   b = true
 test c ; missing required key a or b
   c = true ; unexpected key c
+
+
+===
+; incompatibility error
+a
+  keys
+    a = true
+b
+  keys
+    b = true
+test
+  one of
+    = <a>
+    = <b>
+root
+  keys
+    test .* = <test>
+---
+test a
+  a = true
+test b
+  b = true
+test c
+  c = true ; unexpected key c
+
+===
+; confusing incompatibility error
+a
+  keys
+    a = true
+    c = false
+b
+  keys
+    b = true
+    c = true
+test
+  one of
+    = <a>
+    = <b>
+root
+  keys
+    test .* = <test>
+---
+test 1
+  a = true ; unexpected key a
+  c = true
+test 2
+  a = true
+  c = false
+test 3
+  b = true
+  c = false ; expected c to match true
+
+===
+; simple  lists
+test
+  items = <bool>
+
+bool
+  one of
+    = true
+    = false
+
+root
+  keys
+    test .* = <test>
+---
+test 1
+ = true
+ = false
+test 2
+ = foo ; expected true or false
+test 3
+
+===
+; required  lists
+test
+  required items
+    = 1
+
+root
+  keys
+    test .* = <test>
+---
+test 1
+ = 1
+test 2
+ = 1
+ = 2 ; unexpected list item
+test 3 ; missing required list item 1
+
+===
+; mixed lists
+test
+  required items
+    = 1
+  items = 2
+
+root
+  keys
+    test .* = <test>
+---
+test 1
+ = 1
+test 2
+ = 1
+ = 2
+test 3 ; missing required list item 1
+test 4
+ = 2 ; expected 1
+test 5
+ = 1
+ = 3 ; expected 2

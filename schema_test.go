@@ -14,6 +14,9 @@ func collectErrors(input string) []string {
 	output := []string{}
 	for lno, token := range conl.Tokens(input) {
 		if token.Kind == conl.Comment {
+			if strings.HasPrefix(token.Content, ";") {
+				continue
+			}
 			for _, msg := range strings.Split(token.Content, ";") {
 				output = append(output, fmt.Sprintf("%d: %s", lno, strings.Trim(msg, " ")))
 			}
