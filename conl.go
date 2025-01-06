@@ -104,7 +104,10 @@ func splitUnquoted(input string, key bool) (before, after string) {
 	if key {
 		before, after, found := strings.Cut(input, "=")
 		if found {
-			return strings.TrimRight(before, " \t"), strings.TrimLeft(after, " \t")
+			if i := strings.Index(before, ";"); i >= 0 {
+				return strings.TrimRight(before[:i], " \t"), input[i:]
+			}
+			return strings.TrimRight(before, " \t"), after
 		}
 	}
 

@@ -78,101 +78,101 @@ func parseDoc(input string) *conlValue {
 	return root
 }
 
-type schemaValue struct {
+type matcher struct {
 	Pattern   *regexp.Regexp
 	Reference string
-	Resolved  *SchemaNode
+	Resolved  *node
 }
 
-func (sv *schemaValue) Resolve(s Schema, seen []string) error {
-	if sv.Pattern != nil || sv.Resolved != nil {
+func (m *matcher) Resolve(s Schema, seen []string) error {
+	if m.Pattern != nil || m.Resolved != nil {
 		return nil
 	}
-	next, ok := s[sv.Reference]
+	next, ok := s[m.Reference]
 	if !ok {
-		return fmt.Errorf("<%s> is not defined", sv.Reference)
-	} else if slices.Contains(seen, sv.Reference) {
-		return fmt.Errorf("<%s> is defined in terms of itself", sv.Reference)
+		return fmt.Errorf("<%s> is not defined", m.Reference)
+	} else if slices.Contains(seen, m.Reference) {
+		return fmt.Errorf("<%s> is defined in terms of itself", m.Reference)
 	}
-	if err := next.Resolve(s, sv.Reference, append(seen, sv.Reference)); err != nil {
+	if err := next.Resolve(s, m.Reference, append(seen, m.Reference)); err != nil {
 		return err
 	}
-	sv.Resolved = next
+	m.Resolved = next
 	return nil
 }
 
-func (sv *schemaValue) Validate(s Schema, val *conlValue, key string) (errors []ValidationError) {
-	if sv.Resolved != nil {
-		return sv.Resolved.Validate(s, val, key)
+func (m *matcher) Validate(s Schema, val *conlValue, key string) (errors []ValidationError) {
+	if m.Resolved != nil {
+		return m.Resolved.Validate(s, val, key)
 	}
 	if val.Scalar == nil {
 		errors = append(errors,
 			ValidationError{
 				Lno:           val.Lno,
-				ExpectedMatch: []string{"scalar"},
-				Key:           key,
+				expectedMatch: []string{"scalar"},
+				key:           key,
 			})
 		return errors
 	}
-	if !sv.Pattern.MatchString(*val.Scalar) {
+	if !m.Pattern.MatchString(*val.Scalar) {
 		errors = append(errors, ValidationError{
 			Lno:           val.Lno,
-			Key:           key,
-			ExpectedMatch: []string{sv.String()},
+			key:           key,
+			expectedMatch: []string{m.String()},
 		})
 		return errors
 	}
 	return nil
 }
 
-func (o *schemaValue) UnmarshalText(data []byte) error {
+func (m *matcher) UnmarshalText(data []byte) error {
 	if data[0] == '<' {
 		if data[len(data)-1] != '>' {
 			return fmt.Errorf("missing closing >")
 		}
-		o.Reference = string(data[1 : len(data)-1])
+		m.Reference = string(data[1 : len(data)-1])
 		return nil
 	}
 	pattern := &regexp.Regexp{}
 	if err := pattern.UnmarshalText([]byte("^" + string(data) + "$")); err != nil {
 		return err
 	}
-	o.Pattern = pattern
+	m.Pattern = pattern
 	return nil
 }
 
-func (o *schemaValue) String() string {
-	if o.Pattern != nil {
-		s := o.Pattern.String()
+func (m *matcher) String() string {
+	if m.Pattern != nil {
+		s := m.Pattern.String()
 		s = s[1 : len(s)-1]
 		if s[0] == '<' {
 			s = "\\" + s
 		}
 		return s
 	}
-	return "<" + o.Reference + ">"
+	return "<" + m.Reference + ">"
 }
 
-func (sv *schemaValue) MarshalText() ([]byte, error) {
-	return []byte(sv.String()), nil
+func (m *matcher) MarshalText() ([]byte, error) {
+	return []byte(m.String()), nil
 }
 
-type Schema map[string]*SchemaNode
+type Schema map[string]*node
 
-type SchemaNode struct {
+type node struct {
 	Name string `conl:"-"`
 	Docs string `conl:"docs"`
 
-	Pattern *schemaValue `conl:"pattern"`
-	Hint    string       `conl:"hint"`
+	Scalar *matcher `conl:"pattern"`
+	Hint   string   `conl:"hint"`
 
-	OneOf []*schemaValue `conl:"one of"`
+	OneOf []*matcher `conl:"one of"`
 
-	Keys         map[*schemaValue]*schemaValue `conl:"keys"`
-	RequiredKeys map[*schemaValue]*schemaValue `conl:"required keys"`
+	Keys         map[*matcher]*matcher `conl:"keys"`
+	RequiredKeys map[*matcher]*matcher `conl:"required keys"`
 
-	Items         *schemaValue   `conl:"items"`
-	RequiredItems []*schemaValue `conl:"required items"`
+	Items         *matcher   `conl:"items"`
+	RequiredItems []*matcher `conl:"required items"`
 }
 
 func sumIf(bs ...bool) int {
@@ -185,12 +185,12 @@ func sumIf(bs ...bool) int {
 	return count
 }
 
-func (n *SchemaNode) Resolve(s Schema, name string, seen []string) error {
+func (n *node) Resolve(s Schema, name string, seen []string) error {
 
 	if n.Name != "" {
 		return nil
 	}
-	count := sumIf(n.Pattern != nil,
+	count := sumIf(n.Scalar != nil,
 		n.OneOf != nil,
 		n.Keys != nil || n.RequiredKeys != nil,
 		n.Items != nil || n.RequiredItems != nil)
@@ -198,8 +198,8 @@ func (n *SchemaNode) Resolve(s Schema, name string, seen []string) error {
 	if count > 1 {
 		return fmt.Errorf("invalid schema: %v must have only one of pattern, enum, (required) keys, or (required) items", name)
 	}
-	if n.Pattern != nil {
-		if err := n.Pattern.Resolve(s, seen); err != nil {
+	if n.Scalar != nil {
+		if err := n.Scalar.Resolve(s, seen); err != nil {
 			return err
 		}
 	}
@@ -237,6 +237,154 @@ func (n *SchemaNode) Resolve(s Schema, name string, seen []string) error {
 	return nil
 }
 
+func (n *node) Validate(s Schema, val *conlValue, key string) (errors []ValidationError) {
+	if val.Error != nil {
+		errors = append(errors,
+			ValidationError{
+				Lno: val.Lno,
+				key: key,
+				err: *val.Error,
+			})
+		return errors
+	}
+
+	if n.Scalar != nil {
+		if val.Map != nil || val.List != nil {
+			errors = append(errors,
+				ValidationError{
+					Lno:           val.Lno,
+					key:           key,
+					expectedMatch: []string{"a scalar"},
+				})
+			return errors
+		}
+		if err := n.Scalar.Validate(s, val, key); err != nil {
+			return err
+		}
+	}
+
+	if n.OneOf != nil {
+		for _, item := range n.OneOf {
+			nextErrors := item.Validate(s, val, key)
+			if len(nextErrors) == 0 {
+				return nil
+			}
+			if len(errors) == 0 || len(nextErrors) < len(errors) || nextErrors[0].Lno >= errors[0].Lno {
+				errors = mergeErrors(nextErrors, errors)
+			} else {
+				errors = mergeErrors(errors, nextErrors)
+			}
+		}
+		return errors
+	}
+
+	if n.Keys != nil || n.RequiredKeys != nil {
+		seenRequired := make(map[*matcher]bool)
+		if val.Scalar != nil || val.List != nil {
+			errors = append(errors,
+				ValidationError{
+					Lno:           val.Lno,
+					key:           key,
+					expectedMatch: []string{"a map"},
+				})
+			return errors
+		}
+
+		for _, entry := range val.Map {
+			allowed := false
+			for keyMatcher, valueMatcher := range n.RequiredKeys {
+				keyErrors := keyMatcher.Validate(s, &conlValue{Lno: entry.Lno, Scalar: &entry.Key}, "")
+				if len(keyErrors) == 0 {
+					seenRequired[keyMatcher] = true
+					allowed = true
+					errors = append(errors, valueMatcher.Validate(s, &entry.Value, entry.Key)...)
+				}
+			}
+			if !allowed {
+				for keyMatcher, valueMatcher := range n.Keys {
+					keyErrors := keyMatcher.Validate(s, &conlValue{Lno: entry.Lno, Scalar: &entry.Key}, "")
+					if len(keyErrors) == 0 {
+						allowed = true
+						errors = append(errors, valueMatcher.Validate(s, &entry.Value, entry.Key)...)
+						break
+					}
+				}
+			}
+			if !allowed {
+				errors = append(errors, ValidationError{
+					Lno:        entry.Lno,
+					key:        key,
+					unexpected: fmt.Sprintf("key %s", entry.Key),
+				})
+			}
+		}
+
+		requiredErrors := []ValidationError{}
+
+		for keyMatcher := range n.RequiredKeys {
+			if !seenRequired[keyMatcher] {
+				errors = append(errors, ValidationError{
+					Lno:         val.Lno,
+					key:         key,
+					requiredKey: []string{keyMatcher.String()},
+				})
+			}
+		}
+		if len(requiredErrors) > 0 {
+			return requiredErrors
+		}
+		return errors
+	}
+
+	if n.Items != nil || n.RequiredItems != nil {
+		if val.Scalar != nil || val.Map != nil {
+			errors = append(errors,
+				ValidationError{
+					Lno:           val.Lno,
+					key:           key,
+					expectedMatch: []string{"a list"},
+				})
+			return errors
+		}
+		for i, valueMatcher := range n.RequiredItems {
+			if i < len(val.List) {
+				errors = append(errors, valueMatcher.Validate(s, &val.List[i].Value, "")...)
+			}
+		}
+		if len(n.RequiredItems) > len(val.List) {
+			errors = append(errors, ValidationError{
+				Lno:          val.Lno,
+				key:          key,
+				requiredItem: fmt.Sprintf("%s", n.RequiredItems[len(val.List)]),
+			})
+		}
+		if n.Items == nil && len(val.List) > len(n.RequiredItems) {
+			errors = append(errors, ValidationError{
+				Lno:        val.List[len(n.RequiredItems)].Lno,
+				key:        key,
+				unexpected: "list item",
+			})
+		}
+		if n.Items != nil {
+			for i := len(n.RequiredItems); i < len(val.List); i++ {
+				errors = append(errors, n.Items.Validate(s, &val.List[i].Value, "")...)
+			}
+		}
+		return errors
+	}
+
+	if val.List != nil || val.Map != nil || val.Scalar != nil {
+		errors = append(errors,
+			ValidationError{
+				Lno:           val.Lno,
+				key:           key,
+				expectedMatch: []string{"no value"},
+			})
+	}
+	return errors
+
+}
+
 func ParseSchema(input []byte) (Schema, error) {
 	schema := Schema{}
 	if err := Unmarshal(input, &schema); err != nil {
@@ -253,13 +401,26 @@ func ParseSchema(input []byte) (Schema, error) {
 	return schema, nil
 }
 
+// Validate validates the input against the schema.
+// If it matches, it returns an empty slice of errors.
+// If it does not match, it returns a non-empty slice of errors.
+// As there may be multiple possible ways for a schema to match,
+// the errors returned are an arbitrary subset of the possible problems.
+// The exact errors returned will change over time as heuristics improve.
+func (s Schema) Validate(input string) []ValidationError {
+	doc := parseDoc(input)
+	return s["root"].Validate(s, doc, "")
+}
+
+// A ValidationError represents a single validation error.
+// Use .Error() to get the message, and use .Lno to get the line number.
 type ValidationError struct {
-	Key           string
-	ExpectedMatch []string
-	RequiredKey   []string
-	RequiredItem  string
-	Unexpected    string
-	Err           string
+	key           string
+	expectedMatch []string
+	requiredKey   []string
+	requiredItem  string
+	unexpected    string
+	err           string
 	Lno           int
 }
 
@@ -275,25 +436,24 @@ func joinWithOr(items []string) string {
 
 func (ve *ValidationError) Error() string {
 	switch true {
-	case ve.Err != "":
-		return fmt.Sprintf("%d: %v", ve.Lno, ve.Err)
+	case ve.err != "":
+		return fmt.Sprintf("%d: %v", ve.Lno, ve.err)
 
-	case ve.ExpectedMatch != nil:
-		if ve.Key != "" {
-			return fmt.Sprintf("%d: expected %s to match %v", ve.Lno, ve.Key, joinWithOr(ve.ExpectedMatch))
+	case ve.requiredKey != nil:
+		return fmt.Sprintf("%d: missing required key %v", ve.Lno, joinWithOr(ve.requiredKey))
+
+	case ve.requiredItem != "":
+		return fmt.Sprintf("%d: missing required list item %v", ve.Lno, ve.requiredItem)
+
+	case ve.expectedMatch != nil:
+		if ve.key != "" {
+			return fmt.Sprintf("%d: expected %s = %v", ve.Lno, ve.key, joinWithOr(ve.expectedMatch))
 		} else {
-			return fmt.Sprintf("%d: expected %v", ve.Lno, joinWithOr(ve.ExpectedMatch))
-
+			return fmt.Sprintf("%d: expected %v", ve.Lno, joinWithOr(ve.expectedMatch))
 		}
 
-	case ve.RequiredKey != nil:
-		return fmt.Sprintf("%d: missing required key %v", ve.Lno, joinWithOr(ve.RequiredKey))
-
-	case ve.RequiredItem != "":
-		return fmt.Sprintf("%d: missing required list item %v", ve.Lno, ve.RequiredItem)
-
-	case ve.Unexpected != "":
-		return fmt.Sprintf("%d: unexpected %v", ve.Lno, ve.Unexpected)
+	case ve.unexpected != "":
+		return fmt.Sprintf("%d: unexpected %v", ve.Lno, ve.unexpected)
 
 	default:
 		panic(fmt.Errorf("unhandled %#v", ve))
@@ -311,12 +471,12 @@ func mergeErrors(a, b []ValidationError) []ValidationError {
 	for _, errB := range b {
 		if errA, exists := aMap[errB.Lno]; exists {
 			merged = append(merged, ValidationError{
-				Key:           errA.Key,
-				ExpectedMatch: append(errB.ExpectedMatch, errA.ExpectedMatch...),
-				RequiredKey:   append(errB.RequiredKey, errA.RequiredKey...),
-				RequiredItem:  errA.RequiredItem,
-				Unexpected:    errA.Unexpected,
-				Err:           errA.Err,
+				key:           errA.key,
+				expectedMatch: append(errB.expectedMatch, errA.expectedMatch...),
+				requiredKey:   append(errB.requiredKey, errA.requiredKey...),
+				requiredItem:  errA.requiredItem,
+				unexpected:    errA.unexpected,
+				err:           errA.err,
 				Lno:           errA.Lno,
 			})
 			delete(aMap, errB.Lno)
@@ -332,144 +492,4 @@ func mergeErrors(a, b []ValidationError) []ValidationError {
 	})
 
 	return merged
-}
-
-func (n *SchemaNode) Validate(s Schema, val *conlValue, key string) (errors []ValidationError) {
-	if val.Error != nil {
-		errors = append(errors,
-			ValidationError{
-				Lno: val.Lno,
-				Key: key,
-				Err: *val.Error,
-			})
-		return errors
-	}
-
-	if n.Pattern != nil {
-		if err := n.Pattern.Validate(s, val, key); err != nil {
-			return err
-		}
-	}
-
-	if n.OneOf != nil {
-		for _, item := range n.OneOf {
-			nextErrors := item.Validate(s, val, key)
-			if len(nextErrors) == 0 {
-				return nil
-			}
-			if len(errors) == 0 || len(nextErrors) <= len(errors) {
-				errors = mergeErrors(nextErrors, errors)
-			}
-		}
-		return errors
-	}
-
-	if n.Keys != nil || n.RequiredKeys != nil {
-		seenRequired := make(map[*schemaValue]bool)
-		if val.Scalar != nil || val.List != nil {
-			errors = append(errors,
-				ValidationError{
-					Lno:           val.Lno,
-					Key:           key,
-					ExpectedMatch: []string{"map"},
-				})
-			return errors
-		}
-
-		for _, entry := range val.Map {
-			allowed := false
-			for keyMatcher, valueMatcher := range n.RequiredKeys {
-				keyErrors := keyMatcher.Validate(s, &conlValue{Lno: entry.Lno, Scalar: &entry.Key}, "")
-				if len(keyErrors) == 0 {
-					seenRequired[keyMatcher] = true
-					allowed = true
-					errors = append(errors, valueMatcher.Validate(s, &entry.Value, entry.Key)...)
-				}
-			}
-			for keyMatcher, valueMatcher := range n.Keys {
-				keyErrors := keyMatcher.Validate(s, &conlValue{Lno: entry.Lno, Scalar: &entry.Key}, "")
-				if len(keyErrors) == 0 {
-					allowed = true
-					errors = append(errors, valueMatcher.Validate(s, &entry.Value, entry.Key)...)
-					break
-				}
-			}
-			if !allowed {
-				errors = append(errors, ValidationError{
-					Lno:        entry.Lno,
-					Key:        key,
-					Unexpected: fmt.Sprintf("key %s", entry.Key),
-				})
-			}
-		}
-
-		requiredErrors := []ValidationError{}
-
-		for keyMatcher := range n.RequiredKeys {
-			if !seenRequired[keyMatcher] {
-				errors = append(errors, ValidationError{
-					Lno:         val.Lno,
-					Key:         key,
-					RequiredKey: []string{keyMatcher.String()},
-				})
-			}
-		}
-		if len(requiredErrors) > 0 {
-			return requiredErrors
-		}
-		return errors
-	}
-
-	if n.Items != nil || n.RequiredItems != nil {
-		if val.Scalar != nil || val.Map != nil {
-			errors = append(errors,
-				ValidationError{
-					Lno:           val.Lno,
-					Key:           key,
-					ExpectedMatch: []string{"map"},
-				})
-			return errors
-		}
-		for i, valueMatcher := range n.RequiredItems {
-			if i < len(val.List) {
-				errors = append(errors, valueMatcher.Validate(s, &val.List[i].Value, "")...)
-			}
-		}
-		if len(n.RequiredItems) > len(val.List) {
-			errors = append(errors, ValidationError{
-				Lno:          val.Lno,
-				Key:          key,
-				RequiredItem: fmt.Sprintf("%s", n.RequiredItems[len(val.List)]),
-			})
-		}
-		if n.Items == nil && len(val.List) > len(n.RequiredItems) {
-			errors = append(errors, ValidationError{
-				Lno:        val.List[len(n.RequiredItems)].Lno,
-				Key:        key,
-				Unexpected: "list item",
-			})
-		}
-		if n.Items != nil {
-			for i := len(n.RequiredItems); i < len(val.List); i++ {
-				errors = append(errors, n.Items.Validate(s, &val.List[i].Value, "")...)
-			}
-		}
-		return errors
-	}
-
-	if val.List != nil || val.Map != nil || val.Scalar != nil {
-		errors = append(errors,
-			ValidationError{
-				Lno:           val.Lno,
-				Key:           key,
-				ExpectedMatch: []string{"no value"},
-			})
-	}
-	return errors
-
-}
-
-func (s Schema) Validate(input string) []ValidationError {
-	doc := parseDoc(input)
-	return s["root"].Validate(s, doc, "")
 }

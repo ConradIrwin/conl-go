@@ -3,7 +3,7 @@ root
   keys
     username = \w+
 ---
-username = * ; expected username to match \w+
+username = * ; expected username = \w+
 
 ===
 ; two errors
@@ -11,7 +11,7 @@ root
   keys
     username = \w+
 ---
-username = * ; expected username to match \w+
+username = * ; expected username = \w+
 password = example ; unexpected key password
 
 ===
@@ -44,7 +44,7 @@ root
     username = \w+
     code .* = [0-9]+
 ---
-code home = 123r ; expected code home to match [0-9]+
+code home = 123r ; expected code home = [0-9]+
 ===
 ; empty
 test
@@ -63,8 +63,8 @@ root
   keys
     test .* = <test>
 ---
-test 1 = a ; expected test 1 to match no value
-test 2 ; expected test 2 to match no value
+test 1 = a ; expected test 1 = no value
+test 2 ; expected test 2 = no value
   = a
 
 ===
@@ -86,7 +86,7 @@ root
     test = <test>
 ---
 test
-  code home = 123r ; expected code home to match [0-9]+
+  code home = 123r ; expected code home = [0-9]+
 
 ===
 ; one of scalars
@@ -101,7 +101,7 @@ root
 ---
 test a = a
 test b = b
-test d = d ; expected test d to match a, b or c
+test d = d ; expected test d = a, b or c
 
 ===
 ; one of required keys
@@ -124,7 +124,7 @@ test a
 test b
   type = b
 test c
-  type = c ; expected type to match a or b
+  type = c ; expected type = a or b
 
 ===
 ; one of required keys
@@ -192,14 +192,14 @@ root
     test .* = <test>
 ---
 test 1
-  a = true ; unexpected key a
-  c = true
+  a = true
+  c = true ; expected c = false
 test 2
   a = true
   c = false
 test 3
   b = true
-  c = false ; expected c to match true
+  c = false ; expected c = true
 
 ===
 ; simple  lists
@@ -261,3 +261,44 @@ test 4
 test 5
  = 1
  = 3 ; expected 2
+
+===
+; mixed types
+test
+  one of
+    = true
+    = <data>
+data
+  required keys
+    timeout = \d+ *(s|ms)
+
+root
+  keys
+    test .* = <test>
+---
+test 1 = false ; expected test 1 = true or a map
+
+===
+; mixed types list
+test
+  one of
+    = <map>
+    = <list>
+map
+  required keys
+    timeout = \d+ *(s|ms)
+list
+  required items
+    = \d+ *(s|ms)
+
+root
+  keys
+    test .* = <test>
+---
+test 1 = false ; expected test 1 = a map or a list
+test 2
+  = 5s
+test 3 ; missing required key timeout
+  duration = 5s
+test 4
+  timeout = 10ms
