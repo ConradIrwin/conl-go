@@ -254,37 +254,49 @@ func Unmarshal(data []byte, v any) error {
 		return fmt.Errorf("invalid target, must be a non-nil pointer")
 	}
 
-	iter, done := iter.Pull2(Tokens(data))
+	iter, done := iter.Pull(Tokens(data))
 	defer done()
 	lastLine := 0
-	nextToken := func() (int, Token) {
+	tokenErr := error(nil)
+	nextToken := func() Token {
 		for {
-			line, token, valid := iter()
+			token, valid := iter()
+			if token.Error != nil {
+				tokenErr = token.Error
+				valid = false
+			}
 			if !valid {
-				return lastLine, Token{Kind: endOfFile, Content: ""}
+				return Token{Lno: lastLine, Kind: sentinel, Content: ""}
 			}
 			if token.Kind == Comment || token.Kind == MultilineHint {
 				continue
 			}
-			lastLine = line
-			return line, token
+			lastLine = token.Lno
+			return token
 		}
 	}
-	return unmarshalValue(nextToken, value.Elem())
+	err := unmarshalValue(nextToken, value.Elem())
+	if tokenErr != nil {
+		return tokenErr
+	}
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
-func unmarshalValue(nextToken func() (int, Token), v reflect.Value) error {
+func unmarshalValue(nextToken func() Token, v reflect.Value) error {
 	if !v.CanSet() {
 		panic(fmt.Errorf("cannot set value of type: %v", v.Type()))
 	}
 
 	if tu, ok := v.Addr().Interface().(encoding.TextUnmarshaler); ok {
-		lno, token := nextToken()
-		if token.Kind != Value && token.Kind != MultilineValue {
-			return fmt.Errorf("%d: expected value", lno)
+		token := nextToken()
+		if token.Kind != Scalar && token.Kind != MultilineScalar {
+			return fmt.Errorf("%d: expected value", token.Lno)
 		}
 		if err := tu.UnmarshalText([]byte(token.Content)); err != nil {
-			return fmt.Errorf("%d: %w", lno, err)
+			return fmt.Errorf("%d: %w", token.Lno, err)
 		}
 		return nil
 	}
@@ -311,17 +323,17 @@ func unmarshalValue(nextToken func() (int, Token), v reflect.Value) error {
 		reflect.Complex64, reflect.Complex128,
 		reflect.Bool,
 		reflect.String:
-		lno, token := nextToken()
-		if token.Kind == Value || token.Kind == MultilineValue {
-			return setBasicValue(lno, token.Content, v)
+		token := nextToken()
+		if token.Kind == Scalar || token.Kind == MultilineScalar {
+			return setBasicValue(token.Lno, token.Content, v)
 		}
-		return fmt.Errorf("%d: expected value", lno)
+		return fmt.Errorf("%d: expected value", token.Lno)
 	}
 
 	return fmt.Errorf("unsupported type: %v", v.Type())
 }
 
-func unmarshalStruct(nextToken func() (int, Token), v reflect.Value) error {
+func unmarshalStruct(nextToken func() Token, v reflect.Value) error {
 	t := v.Type()
 	fieldMap := make(map[string]reflect.Value)
 
@@ -356,23 +368,23 @@ func unmarshalStruct(nextToken func() (int, Token), v reflect.Value) error {
 	}
 
 	for {
-		lno, token := nextToken()
+		token := nextToken()
 		switch token.Kind {
 		case Indent:
 			continue
 		case MapKey:
 			field, ok := fieldMap[token.Content]
 			if !ok {
-				return fmt.Errorf("%d: unknown field %s", lno, token.Content)
+				return fmt.Errorf("%d: unknown field %s", token.Lno, token.Content)
 			}
 			if err := unmarshalValue(nextToken, field); err != nil {
 				return err
 			}
-		case Outdent, NoValue, endOfFile:
+		case Outdent, NoValue, sentinel:
 			return nil
 
 		default:
-			return fmt.Errorf("%d: unexpected %v, expected %v", lno, token.Kind, v.Type())
+			return fmt.Errorf("%d: unexpected %v, expected %v", token.Lno, token.Kind, v.Type())
 		}
 	}
 }
@@ -388,9 +400,9 @@ func toSnakeCase(s string) string {
 	return result.String()
 }
 
-func unmarshalInterface(nextToken func() (int, Token), v reflect.Value) error {
+func unmarshalInterface(nextToken func() Token, v reflect.Value) error {
 	for {
-		lno, token := nextToken()
+		token := nextToken()
 		switch token.Kind {
 		case Indent:
 			continue
@@ -417,23 +429,23 @@ func unmarshalInterface(nextToken func() (int, Token), v reflect.Value) error {
 			}
 			v.Set(s)
 			return nil
-		case Value, MultilineValue:
+		case Scalar, MultilineScalar:
 			v.Set(reflect.ValueOf(token.Content))
 			return nil
-		case Outdent, NoValue, endOfFile:
+		case Outdent, NoValue, sentinel:
 			return nil
 		default:
-			return fmt.Errorf("%d: unexpected %v", lno, token.Kind)
+			return fmt.Errorf("%d: unexpected %v", token.Lno, token.Kind)
 		}
 	}
 }
 
-func unmarshalMap(nextToken func() (int, Token), v reflect.Value) error {
+func unmarshalMap(nextToken func() Token, v reflect.Value) error {
 	keyType := v.Type().Key()
 	valueType := v.Type().Elem()
 
 	for {
-		lno, token := nextToken()
+		token := nextToken()
 		switch token.Kind {
 		case Indent:
 			continue
@@ -442,43 +454,43 @@ func unmarshalMap(nextToken func() (int, Token), v reflect.Value) error {
 				v.Set(reflect.MakeMap(v.Type()))
 			}
 			key := reflect.New(keyType).Elem()
-			if err := setBasicValue(lno, token.Content, key); err != nil {
-				return fmt.Errorf("%d: invalid key: %v", lno, err)
+			if err := setBasicValue(token.Lno, token.Content, key); err != nil {
+				return fmt.Errorf("%d: invalid key: %v", token.Lno, err)
 			}
 			value := reflect.New(valueType).Elem()
 			if err := unmarshalValue(nextToken, value); err != nil {
 				return err
 			}
 			v.SetMapIndex(key, value)
-		case Outdent, NoValue, endOfFile:
+		case Outdent, NoValue, sentinel:
 			return nil
 
 		default:
-			return fmt.Errorf("%d: unexpected %s, expected %s", lno, token.Kind, MapKey)
+			return fmt.Errorf("%d: unexpected %s, expected %s", token.Lno, token.Kind, MapKey)
 		}
 	}
 }
 
-func unmarshalSlice(nextToken func() (int, Token), v reflect.Value) error {
+func unmarshalSlice(nextToken func() Token, v reflect.Value) error {
 	elemType := v.Type().Elem()
 
 	if elemType.Kind() == reflect.Uint8 {
-		lno, token := nextToken()
-		if token.Kind == Value || token.Kind == MultilineValue {
+		token := nextToken()
+		if token.Kind == Scalar || token.Kind == MultilineScalar {
 			r := strings.NewReplacer(" ", "", "\t", "", "\n", "")
 			input := r.Replace(token.Content)
 			output, err := base64.RawStdEncoding.DecodeString(input)
 			if err != nil {
-				return fmt.Errorf("%d: %w", lno, err)
+				return fmt.Errorf("%d: %w", token.Lno, err)
 			}
 			v.Set(reflect.ValueOf(output))
 			return nil
 		}
-		return fmt.Errorf("%d: expected value", lno)
+		return fmt.Errorf("%d: expected value", token.Lno)
 	}
 
 	for {
-		lno, token := nextToken()
+		token := nextToken()
 		switch token.Kind {
 		case Indent:
 			continue
@@ -488,21 +500,21 @@ func unmarshalSlice(nextToken func() (int, Token), v reflect.Value) error {
 				return err
 			}
 			v.Set(reflect.Append(v, elem))
-		case Outdent, NoValue, endOfFile:
+		case Outdent, NoValue, sentinel:
 			return nil
 
 		default:
-			return fmt.Errorf("%d: unexpected %s, expected %s", lno, token.Kind, ListItem)
+			return fmt.Errorf("%d: unexpected %s, expected %s", token.Lno, token.Kind, ListItem)
 		}
 	}
 }
 
-func unmarshalArray(nextToken func() (int, Token), v reflect.Value) error {
+func unmarshalArray(nextToken func() Token, v reflect.Value) error {
 	elemType := v.Type().Elem()
 
 	i := 0
 	for {
-		lno, token := nextToken()
+		token := nextToken()
 		switch token.Kind {
 		case ListItem:
 			elem := reflect.New(elemType).Elem()
@@ -510,15 +522,15 @@ func unmarshalArray(nextToken func() (int, Token), v reflect.Value) error {
 				return err
 			}
 			if v.Len() <= i {
-				return fmt.Errorf("%d: too many elements, limit %d", lno, i)
+				return fmt.Errorf("%d: too many elements, limit %d", token.Lno, i)
 			}
 			v.Index(i).Set(elem)
 			i += 1
-		case Outdent, NoValue, endOfFile:
+		case Outdent, NoValue, sentinel:
 			return nil
 
 		default:
-			return fmt.Errorf("%d: unexpected %s, expected list", lno, token.Kind)
+			return fmt.Errorf("%d: unexpected %s, expected list", token.Lno, token.Kind)
 		}
 	}
 }

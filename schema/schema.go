@@ -12,23 +12,10 @@ import (
 	"strings"
 
 	"github.com/ConradIrwin/conl-go"
+	"github.com/ConradIrwin/dbg"
 )
 
-// A Schema is a map of named definitions. The special name "root"
-// is used to validate the root of the document.
-//
-// The values in the map are always themselves maps, with any of the following keys:
-//
-//   - "scalar": a matcher for a single scalar
-//   - "one of": a list of matchers that are ORed together.
-//   - "keys", "required keys": a map of keys and values (some of which are required).
-//     Both the keys and values are matchers.
-//   - "items", "required items": a list (with some number of required items)
-//
-// A matcher is a string with two possible formats:
-//   - A reference to another definition in the schema, e.g. "<name>"
-//   - A regular expression, e.g. [a-z]+. Regular expressions are anchored by default,
-//     meaning they must match the entire string. If you want a substring match start and end with .*.
+// A Schema allows you to validate a CONL document against a set of rules.
 type Schema struct {
 	schema map[string]*definition
 }
@@ -62,7 +49,7 @@ func Parse(input []byte) (*Schema, error) {
 // The exact errors returned will change over time as heuristics improve.
 func (s *Schema) Validate(input []byte) []ValidationError {
 	doc := parseDoc(input)
-	return s.schema["root"].validate(s, doc, "")
+	return s.schema["root"].validate(s, doc, &conl.Token{Lno: 1})
 }
 
 type definition struct {
@@ -142,13 +129,13 @@ func (d *definition) resolve(s *Schema, name string, seen []string) error {
 	return nil
 }
 
-func (d *definition) validate(s *Schema, val *conlValue, key string) (errors []ValidationError) {
-	if val.Error != nil {
+func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (errors []ValidationError) {
+	if val.Scalar != nil && val.Scalar.Error != nil {
 		errors = append(errors,
 			ValidationError{
-				lno: val.Lno,
-				key: key,
-				err: *val.Error,
+				lno: pos.Lno,
+				key: pos.Content,
+				err: val.Scalar.Error,
 			})
 		return errors
 	}
@@ -157,18 +144,18 @@ func (d *definition) validate(s *Schema, val *conlValue, key string) (errors []V
 		if val.Map != nil || val.List != nil {
 			errors = append(errors,
 				ValidationError{
-					lno:           val.Lno,
-					key:           key,
+					lno:           pos.Lno,
+					key:           pos.Content,
 					expectedMatch: []string{"any scalar"},
 				})
 			return errors
 		}
-		return d.Scalar.validate(s, val, key)
+		return d.Scalar.validate(s, val, pos)
 	}
 
 	if d.OneOf != nil {
 		for _, item := range d.OneOf {
-			nextErrors := item.validate(s, val, key)
+			nextErrors := item.validate(s, val, pos)
 			if len(nextErrors) == 0 {
 				return nil
 			}
@@ -186,8 +173,8 @@ func (d *definition) validate(s *Schema, val *conlValue, key string) (errors []V
 		if val.Scalar != nil || val.List != nil {
 			errors = append(errors,
 				ValidationError{
-					lno:           val.Lno,
-					key:           key,
+					lno:           pos.Lno,
+					key:           pos.Content,
 					expectedMatch: []string{"a map"},
 				})
 			return errors
@@ -195,8 +182,15 @@ func (d *definition) validate(s *Schema, val *conlValue, key string) (errors []V
 
 		for _, entry := range val.Map {
 			allowed := false
+			if entry.Key.Error != nil {
+				errors = append(errors, ValidationError{
+					lno: entry.Key.Lno,
+					err: entry.Key.Error,
+				})
+				continue
+			}
 			for keyMatcher, valueMatcher := range d.RequiredKeys {
-				keyErrors := keyMatcher.validate(s, &conlValue{Lno: entry.Lno, Scalar: &entry.Key}, "")
+				keyErrors := keyMatcher.validate(s, &conlValue{Scalar: entry.Key}, &conl.Token{Lno: entry.Key.Lno})
 				if len(keyErrors) == 0 {
 					seenRequired[keyMatcher] = true
 					allowed = true
@@ -205,7 +199,7 @@ func (d *definition) validate(s *Schema, val *conlValue, key string) (errors []V
 			}
 			if !allowed {
 				for keyMatcher, valueMatcher := range d.Keys {
-					keyErrors := keyMatcher.validate(s, &conlValue{Lno: entry.Lno, Scalar: &entry.Key}, "")
+					keyErrors := keyMatcher.validate(s, &conlValue{Scalar: entry.Key}, &conl.Token{Lno: entry.Key.Lno})
 					if len(keyErrors) == 0 {
 						allowed = true
 						errors = append(errors, valueMatcher.validate(s, &entry.Value, entry.Key)...)
@@ -215,9 +209,9 @@ func (d *definition) validate(s *Schema, val *conlValue, key string) (errors []V
 			}
 			if !allowed {
 				errors = append(errors, ValidationError{
-					lno:        entry.Lno,
-					key:        key,
-					unexpected: fmt.Sprintf("key %s", entry.Key),
+					lno:        entry.Key.Lno,
+					key:        entry.Key.Content,
+					unexpected: fmt.Sprintf("key %s", entry.Key.Content),
 				})
 			}
 		}
@@ -227,8 +221,8 @@ func (d *definition) validate(s *Schema, val *conlValue, key string) (errors []V
 		for keyMatcher := range d.RequiredKeys {
 			if !seenRequired[keyMatcher] {
 				errors = append(errors, ValidationError{
-					lno:         val.Lno,
-					key:         key,
+					lno:         pos.Lno,
+					key:         pos.Content,
 					requiredKey: []string{keyMatcher.String()},
 				})
 			}
@@ -243,34 +237,52 @@ func (d *definition) validate(s *Schema, val *conlValue, key string) (errors []V
 		if val.Scalar != nil || val.Map != nil {
 			errors = append(errors,
 				ValidationError{
-					lno:           val.Lno,
-					key:           key,
+					lno:           pos.Lno,
+					key:           pos.Content,
 					expectedMatch: []string{"a list"},
 				})
 			return errors
 		}
 		for i, valueMatcher := range d.RequiredItems {
 			if i < len(val.List) {
-				errors = append(errors, valueMatcher.validate(s, &val.List[i].Value, "")...)
+				entry := &val.List[i]
+
+				if entry.Key.Error != nil {
+					errors = append(errors, ValidationError{
+						lno: entry.Key.Lno,
+						err: entry.Key.Error,
+					})
+					continue
+				}
+				errors = append(errors, valueMatcher.validate(s, &entry.Value, entry.Key)...)
 			}
 		}
 		if len(d.RequiredItems) > len(val.List) {
 			errors = append(errors, ValidationError{
-				lno:          val.Lno,
-				key:          key,
+				lno:          pos.Lno,
+				key:          pos.Content,
 				requiredItem: d.RequiredItems[len(val.List)].String(),
 			})
 		}
 		if d.Items == nil && len(val.List) > len(d.RequiredItems) {
 			errors = append(errors, ValidationError{
-				lno:        val.List[len(d.RequiredItems)].Lno,
-				key:        key,
+				lno:        val.List[len(d.RequiredItems)].Key.Lno,
+				key:        pos.Content,
 				unexpected: "list item",
 			})
 		}
-		if d.Items != nil {
-			for i := len(d.RequiredItems); i < len(val.List); i++ {
-				errors = append(errors, d.Items.validate(s, &val.List[i].Value, "")...)
+		for i := len(d.RequiredItems); i < len(val.List); i++ {
+			entry := &val.List[i]
+
+			if entry.Key.Error != nil {
+				errors = append(errors, ValidationError{
+					lno: entry.Key.Lno,
+					err: entry.Key.Error,
+				})
+				continue
+			}
+			if d.Items != nil {
+				errors = append(errors, d.Items.validate(s, &entry.Value, entry.Key)...)
 			}
 		}
 		return errors
@@ -279,8 +291,8 @@ func (d *definition) validate(s *Schema, val *conlValue, key string) (errors []V
 	if val.List != nil || val.Map != nil || val.Scalar != nil {
 		errors = append(errors,
 			ValidationError{
-				lno:           val.Lno,
-				key:           key,
+				lno:           pos.Lno,
+				key:           pos.Content,
 				expectedMatch: []string{"no value"},
 			})
 	}
@@ -311,23 +323,23 @@ func (m *matcher) resolve(s *Schema, seen []string) error {
 	return nil
 }
 
-func (m *matcher) validate(s *Schema, val *conlValue, key string) (errors []ValidationError) {
+func (m *matcher) validate(s *Schema, val *conlValue, pos *conl.Token) (errors []ValidationError) {
 	if m.Resolved != nil {
-		return m.Resolved.validate(s, val, key)
+		return m.Resolved.validate(s, val, pos)
 	}
 	if val.Scalar == nil {
 		errors = append(errors,
 			ValidationError{
-				lno:           val.Lno,
+				lno:           pos.Lno,
 				expectedMatch: []string{"any scalar"},
-				key:           key,
+				key:           pos.Content,
 			})
 		return errors
 	}
-	if !m.Pattern.MatchString(*val.Scalar) {
+	if !m.Pattern.MatchString(val.Scalar.Content) {
 		errors = append(errors, ValidationError{
-			lno:           val.Lno,
-			key:           key,
+			lno:           pos.Lno,
+			key:           pos.Content,
 			expectedMatch: []string{m.String()},
 		})
 		return errors
@@ -375,7 +387,7 @@ type ValidationError struct {
 	requiredKey   []string
 	requiredItem  string
 	unexpected    string
-	err           string
+	err           error
 	lno           int
 }
 
@@ -396,7 +408,7 @@ func (ve *ValidationError) Lno() int {
 
 func (ve *ValidationError) Error() string {
 	switch true {
-	case ve.err != "":
+	case ve.err != nil:
 		return fmt.Sprintf("%d: %v", ve.lno, ve.err)
 
 	case ve.requiredKey != nil:
@@ -454,81 +466,53 @@ func mergeErrors(a, b []ValidationError) []ValidationError {
 	return merged
 }
 
-type mapEntry struct {
-	Lno   int
-	Key   string
+type entry struct {
+	Key   *conl.Token
 	Value conlValue
-	Error *string
-}
-
-type listEntry struct {
-	Lno   int
-	Value conlValue
-	Error *string
 }
 
 type conlValue struct {
-	Lno    int
-	Scalar *string
-	Map    []mapEntry
-	List   []listEntry
-	Error  *string
+	Scalar *conl.Token
+	Map    []entry
+	List   []entry
 }
 
 func parseDoc(input []byte) *conlValue {
-	root := &conlValue{Lno: 1}
+	root := &conlValue{}
 	stack := []*conlValue{root}
 
-	for lno, token := range conl.Tokens(input) {
+	for token := range conl.Tokens(input) {
+		dbg.Dbg(token)
 		current := stack[len(stack)-1]
-		value := token.Content
 
 		switch token.Kind {
 		case conl.MapKey:
-			current.Map = append(current.Map, mapEntry{Lno: lno, Key: token.Content})
+			current.Map = append(current.Map, entry{Key: &token})
 
 		case conl.ListItem:
-			current.List = append(current.List, listEntry{Lno: lno})
+			current.List = append(current.List, entry{Key: &token})
 
-		case conl.Value, conl.MultilineValue:
+		case conl.Scalar, conl.MultilineScalar:
 			if len(current.Map) > 0 {
-				current.Map[len(current.Map)-1].Value = conlValue{Lno: lno, Scalar: &value}
+				current.Map[len(current.Map)-1].Value = conlValue{Scalar: &token}
 			} else {
-				current.List[len(current.List)-1].Value = conlValue{Lno: lno, Scalar: &value}
-			}
-
-		case conl.NoValue:
-			if len(current.Map) > 0 {
-				current.Map[len(current.Map)-1].Value = conlValue{Lno: current.Map[len(current.Map)-1].Lno}
-			} else {
-				current.List[len(current.List)-1].Value = conlValue{Lno: current.List[len(current.List)-1].Lno}
+				current.List[len(current.List)-1].Value = conlValue{Scalar: &token}
 			}
 
 		case conl.Indent:
 			if len(current.Map) > 0 {
-				current.Map[len(current.Map)-1].Value = conlValue{Lno: current.Map[len(current.Map)-1].Lno}
+				current.Map[len(current.Map)-1].Value = conlValue{}
 				stack = append(stack, &current.Map[len(current.Map)-1].Value)
 			} else {
-				current.List[len(current.List)-1].Value = conlValue{Lno: current.List[len(current.List)-1].Lno}
+				current.List[len(current.List)-1].Value = conlValue{}
 				stack = append(stack, &current.List[len(current.List)-1].Value)
 			}
 		case conl.Outdent:
 			stack = stack[:len(stack)-1]
-			takeError()
 
-		case conl.Error:
-			if len(current.Map) > 0 {
-				current.Map = append(current.Map, mapEntry{Lno: lno, Error: &value})
-			} else if len(current.List) > 0 {
-				current.List = append(current.List, listEntry{Lno: lno, Error: &value})
-			} else {
-				current.Error = &value
-			}
-
-		case conl.MultilineHint, conl.Comment:
-			takeError()
+		case conl.NoValue, conl.MultilineHint, conl.Comment:
 		default:
-			panic(fmt.Errorf("%v: missing case %#v", lno, token))
+			panic(fmt.Errorf("%v: missing case %#v", token.Lno, token))
 		}
 	}
 

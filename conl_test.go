@@ -18,7 +18,7 @@ func stringToJSON(input string) string {
 
 func toJSON(content []byte) (string, error) {
 	var output strings.Builder
-	next, stop := iter.Pull2(conl.Tokens(content))
+	next, stop := iter.Pull(conl.Tokens(content))
 	defer stop()
 	err := sectionToJSON(next, &output, "")
 	if err != nil {
@@ -27,10 +27,13 @@ func toJSON(content []byte) (string, error) {
 	return output.String(), nil
 }
 
-func sectionToJSON(next func() (int, conl.Token, bool), output *strings.Builder, indent string) error {
+func sectionToJSON(next func() (conl.Token, bool), output *strings.Builder, indent string) error {
 	var sectType string
 outer:
-	for lno, token, ok := next(); ok; lno, token, ok = next() {
+	for token, ok := next(); ok; token, ok = next() {
+		if token.Error != nil {
+			return fmt.Errorf("%d: %w", token.Lno, token.Error)
+		}
 		switch token.Kind {
 		case conl.Comment, conl.MultilineHint:
 			continue
@@ -61,14 +64,12 @@ outer:
 			}
 			output.WriteString(stringToJSON(token.Content))
 			output.WriteString(":")
-		case conl.Value, conl.MultilineValue:
+		case conl.Scalar, conl.MultilineScalar:
 			output.WriteString(stringToJSON(token.Content))
 		case conl.NoValue:
 			output.WriteString("null")
-		case conl.Error:
-			return fmt.Errorf("%d: %s", lno, token.Content)
 		default:
-			panic(fmt.Errorf("unhandled token: %s", token))
+			panic(fmt.Errorf("unhandled token: %s", token.Kind))
 		}
 	}
 
@@ -137,4 +138,15 @@ func TestErrors(t *testing.T) {
 			}
 		}
 	}
+}
+func FuzzParse(f *testing.F) {
+	f.Fuzz(func(t *testing.T, input []byte) {
+		output, err := toJSON(input)
+		if err == nil {
+			out := any(nil)
+			if err := json.Unmarshal([]byte(output), &out); err != nil {
+				t.Fatal(output, err)
+			}
+		}
+	})
 }

@@ -14,17 +14,16 @@ type TokenKind int8
 
 // These tokens are yielded from [Tokens].
 const (
-	endOfFile = TokenKind(iota)
-	Comment   = TokenKind(iota)
+	sentinel = TokenKind(iota)
+	Comment  = TokenKind(iota)
 	Indent
 	Outdent
 	MapKey
 	ListItem
-	Value
+	Scalar
 	NoValue
-	MultilineValue
+	MultilineScalar
 	MultilineHint
-	Error
 )
 
 func (k TokenKind) String() string {
@@ -39,17 +38,15 @@ func (k TokenKind) String() string {
 		return "MapKey"
 	case ListItem:
 		return "ListItem"
-	case Value:
+	case Scalar:
 		return "Value"
 	case NoValue:
 		return "NoValue"
-	case MultilineValue:
+	case MultilineScalar:
 		return "MultilineValue"
 	case MultilineHint:
 		return "MultilineHint"
-	case Error:
-		return "Error"
-	case endOfFile:
+	case sentinel:
 		return "EndOfFile"
 	default:
 		panic("Unknown TokenKind")
@@ -61,8 +58,10 @@ func (k TokenKind) GoString() string {
 }
 
 type Token struct {
+	Lno     int
 	Kind    TokenKind
 	Content string
+	Error   error
 }
 
 var lineRegexp = regexp.MustCompile("\r\n|\r|\n")
@@ -129,20 +128,20 @@ var (
 	escapeRegex  = regexp.MustCompile(`\\(\{.*\}?|.)`)
 )
 
-func decodeLiteral(input string) (string, string) {
+func decodeLiteral(input string) (string, error) {
 	if !utf8.ValidString(input) {
-		return "", "invalid UTF-8"
+		return "", fmt.Errorf("invalid UTF-8")
 	}
 	if !strings.HasPrefix(input, `"`) {
-		return input, ""
+		return input, nil
 	}
 
 	match := literalRegex.FindStringSubmatch(input)
 	if match == nil {
-		return "", "unclosed quotes"
+		return "", fmt.Errorf("unclosed quotes")
 	}
 	if len(match[0]) != len(input) {
-		return "", "characters after quotes"
+		return "", fmt.Errorf("characters after quotes")
 	}
 
 	var badEscape string
@@ -172,13 +171,20 @@ func decodeLiteral(input string) (string, string) {
 		return escape
 	})
 	if badEscape != "" {
-		return "", fmt.Sprintf("invalid escape code: %s", badEscape)
+		return "", fmt.Errorf("invalid escape code: %s", badEscape)
 	}
-	return result, ""
+	return result, nil
 }
 
-func tokenize(input string) iter.Seq2[int, Token] {
-	return func(yield func(int, Token) bool) {
+func checkUtf8(content string) error {
+	if !utf8.ValidString(content) {
+		return fmt.Errorf("invalid UTF-8")
+	}
+	return nil
+}
+
+func tokenize(input string) iter.Seq[Token] {
+	return func(yield func(Token) bool) {
 
 		stack := []string{""}
 		multiline := false
@@ -200,6 +206,9 @@ func tokenize(input string) iter.Seq2[int, Token] {
 					} else if rest == "" {
 						continue
 					} else {
+						if !yield(Token{Lno: multilineLno, Kind: MultilineScalar, Error: fmt.Errorf("missing multiline value")}) {
+							return
+						}
 						multiline = false
 					}
 				} else {
@@ -210,7 +219,9 @@ func tokenize(input string) iter.Seq2[int, Token] {
 						multilineValue += "\n"
 						continue
 					} else {
-						if !yield(multilineLno, Token{Kind: MultilineValue, Content: strings.TrimRight(multilineValue, " \t\r\n")}) {
+						content := strings.TrimRight(multilineValue, " \t\r\n")
+						err := checkUtf8(content)
+						if !yield(Token{Lno: multilineLno, Kind: MultilineScalar, Content: content, Error: err}) {
 							return
 						}
 						multiline = false
@@ -225,7 +236,7 @@ func tokenize(input string) iter.Seq2[int, Token] {
 			}
 
 			if comment, found := strings.CutPrefix(rest, ";"); found {
-				if !yield(lno, Token{Kind: Comment, Content: comment}) {
+				if !yield(Token{Lno: lno, Kind: Comment, Content: comment, Error: checkUtf8(comment)}) {
 					return
 				}
 				continue
@@ -233,26 +244,27 @@ func tokenize(input string) iter.Seq2[int, Token] {
 
 			for !strings.HasPrefix(indent, stack[len(stack)-1]) {
 				stack = stack[:len(stack)-1]
-				if !yield(lno, Token{Kind: Outdent, Content: ""}) {
+				if !yield(Token{Lno: lno, Kind: Outdent, Content: ""}) {
 					return
 				}
 			}
 
 			if indent != stack[len(stack)-1] {
 				stack = append(stack, indent)
-				if !yield(lno, Token{Kind: Indent, Content: indent}) {
+				if !yield(Token{Lno: lno, Kind: Indent, Content: indent}) {
 					return
 				}
 			}
 
 			if list, found := strings.CutPrefix(rest, "="); found {
 				rest = strings.TrimLeft(list, " \t")
-				if !yield(lno, Token{Kind: ListItem, Content: ""}) {
+				if !yield(Token{Lno: lno, Kind: ListItem, Content: ""}) {
 					return
 				}
 			} else {
 				key, value := splitLiteral(rest, true)
-				if !yield(lno, Token{Kind: MapKey, Content: key}) {
+				content, err := decodeLiteral(key)
+				if !yield(Token{Lno: lno, Kind: MapKey, Content: content, Error: err}) {
 					return
 				}
 				rest = value
@@ -262,7 +274,7 @@ func tokenize(input string) iter.Seq2[int, Token] {
 			}
 
 			if comment, found := strings.CutPrefix(rest, ";"); found {
-				if !yield(lno, Token{Kind: Comment, Content: comment}) {
+				if !yield(Token{Lno: lno, Kind: Comment, Content: comment, Error: checkUtf8(comment)}) {
 					return
 				}
 				continue
@@ -271,12 +283,13 @@ func tokenize(input string) iter.Seq2[int, Token] {
 			if indicator, found := strings.CutPrefix(rest, `"""`); found {
 				indicator, rest := splitLiteral(indicator, false)
 				multiline = true
-				if !yield(lno, Token{Kind: MultilineHint, Content: indicator}) {
+				multilineLno = lno
+				if !yield(Token{Lno: lno, Kind: MultilineHint, Content: indicator, Error: checkUtf8(indicator)}) {
 					return
 				}
 
 				if comment, found := strings.CutPrefix(rest, ";"); found {
-					if !yield(lno, Token{Kind: Comment, Content: comment}) {
+					if !yield(Token{Lno: lno, Kind: Comment, Content: comment, Error: checkUtf8(comment)}) {
 						return
 					}
 				}
@@ -285,219 +298,124 @@ func tokenize(input string) iter.Seq2[int, Token] {
 
 			value, rest := splitLiteral(rest, false)
 			if value != "" {
-				if !yield(lno, Token{Kind: Value, Content: value}) {
+				content, err := decodeLiteral(value)
+				if !yield(Token{Lno: lno, Kind: Scalar, Content: content, Error: err}) {
 					return
 				}
 			}
 
 			if comment, found := strings.CutPrefix(rest, ";"); found {
-				if !yield(lno, Token{Kind: Comment, Content: comment}) {
+				if !yield(Token{Lno: lno, Kind: Comment, Content: comment, Error: checkUtf8(comment)}) {
 					return
 				}
 			}
 		}
 
-		if multilineValue != "" {
-			yield(multilineLno, Token{Kind: MultilineValue, Content: strings.TrimRight(multilineValue, " \t\r\n")})
+		if multiline {
+			if multilineValue != "" {
+				content := strings.TrimRight(multilineValue, " \t\r\n")
+				yield(Token{Lno: multilineLno, Kind: MultilineScalar, Content: content, Error: checkUtf8(content)})
+			} else {
+				yield(Token{Lno: multilineLno, Kind: MultilineScalar, Error: fmt.Errorf("missing multiline value")})
+			}
 		}
 	}
 }
 
-type parseState int
+type parseState struct {
+	kind   TokenKind
+	hasKey bool
+}
 
-const (
-	stateUnknown = parseState(iota)
-	stateListItem
-	stateListValue
-	stateListMultiline
-	stateMapKey
-	stateMapValue
-	stateMapMultiline
-)
-
-type errorStop struct{}
-
-var errStop = errorStop{}
-
-// Tokens iterates over tokens in the input string with their associated
-// (1-based) line number. The output is normalized to make it easier to consume.
-// In particular [Indent] and [Outdent] are always paired correctly; and after a
-// [ListItem] or a [MapKey], you are guaranteed to see a value or an [Error].
+// Tokens iterates over tokens in the input string.
 //
-// If you only care about the meaning of the document, you can filter out
-// [Comment] and [MultilineHint] tokens.
+// The raw tokens are post-processed to maintain the invariants that:
+//   - [Indent] and [Outdent] are always paired correctly
+//   - (igoring [Comment]s) after a [ListItem] or a [MapKey],
+//     you will always get one of [Value], [MultilineHint], [NoValue] or [Indent]
+//   - after a [MultilineHint] you will always get a [MultilineValue]
+//   - within  a given section you will only find [ListItem] or [MapKey], not a mix.
 //
-// An [Error] token is yielded for each error encountered during parsing.
-// Parsers can choose to stop at the first error or keep going knowing that the
-// resulting document may be invalid.
-func Tokens(input []byte) iter.Seq2[int, Token] {
-	states := []parseState{stateUnknown}
+// Any parse errors are reported in [Token.Error]. The parser is tolerant to errors,
+// though the resulting document may not be what the user intended, so you should
+// handle errors appropriately.
+func Tokens(input []byte) iter.Seq[Token] {
+	states := []parseState{{}}
 	lastLine := 0
 
-	return func(yieldTo func(int, Token) bool) {
-		defer func() {
-			if r := recover(); r != nil {
-				if r == errStop {
-					return
-				}
-				panic(r)
-			}
-		}()
-
-		yield := func(lno int, token Token) {
-			if !yieldTo(lno, token) {
-				panic(errStop)
-			}
-		}
-
-		yieldDecoded := func(lno int, token Token) {
-			value, err := decodeLiteral(token.Content)
-			if err != "" {
-				yield(lno, Token{Kind: Error, Content: err})
-				return
-			}
-
-			token.Content = value
-			yield(lno, token)
-		}
-
-		yieldChecked := func(lno int, token Token) {
-			if !utf8.ValidString(token.Content) {
-				yield(lno, Token{Kind: Error, Content: "invalid UTF-8"})
-				return
-			}
-			yield(lno, token)
-		}
-
-		yieldMultiline := func(lno int, token Token) {
-			value, err := decodeMultiline(token.Content)
-			if err != "" {
-				yield(lno, Token{Kind: Error, Content: err})
-				return
-			}
-
-			token.Content = value
-			yield(lno, token)
-		}
-
-		for lno, token := range tokenize(string(input)) {
-			lastLine = lno
-			state := states[len(states)-1]
+	return func(yield func(Token) bool) {
+		for token := range tokenize(string(input)) {
+			state := &states[len(states)-1]
 			switch token.Kind {
-			case Comment:
-				yieldChecked(lno, token)
-
 			case Indent:
-				states = append(states, stateUnknown)
-				switch state {
-				case stateListValue:
-					states[len(states)-2] = stateListItem
-					yield(lno, token)
-				case stateMapValue:
-					states[len(states)-2] = stateMapKey
-					yield(lno, token)
-				default:
-					yield(lno, Token{Kind: Error, Content: "unexpected indent"})
-					yield(lno, token)
+				if state.hasKey {
+					state.hasKey = false
+				} else {
+					kind := state.kind
+					if kind == 0 {
+						kind = MapKey
+					}
+					if !yield(Token{Lno: token.Lno, Kind: kind, Error: fmt.Errorf("unexpected indent"), Content: ""}) {
+						return
+					}
 				}
-
+				states = append(states, parseState{})
 			case Outdent:
 				states = states[:len(states)-1]
-				switch state {
-				case stateListItem, stateMapKey:
-					yield(lno, token)
-				case stateListValue, stateMapValue:
-					yield(lno, Token{Kind: NoValue, Content: ""})
-					yield(lno, token)
-				default:
-					yield(lno, Token{Kind: Error, Content: "unexpected outdent"})
+				if state.hasKey {
+					if !yield(Token{Lno: token.Lno, Kind: NoValue}) {
+						return
+					}
 				}
-
-			case ListItem:
-				switch state {
-				case stateUnknown, stateListItem:
-					states[len(states)-1] = stateListValue
-					yield(lno, token)
-				case stateListValue:
-					yield(lno, Token{Kind: NoValue, Content: ""})
-					yield(lno, token)
-				default:
-					yield(lno, Token{Kind: Error, Content: "unexpected list item"})
+			case ListItem, MapKey:
+				if state.kind == 0 {
+					state.kind = token.Kind
 				}
-
-			case MapKey:
-				switch state {
-				case stateUnknown, stateMapKey:
-					states[len(states)-1] = stateMapValue
-					yieldDecoded(lno, token)
-				case stateMapValue:
-					yield(lno, Token{Kind: NoValue, Content: ""})
-					yieldDecoded(lno, token)
-				default:
-					yield(lno, Token{Kind: Error, Content: "unexpected map key"})
+				if state.hasKey {
+					if !yield(Token{Lno: token.Lno, Kind: NoValue}) {
+						return
+					}
 				}
-
-			case Value:
-				switch state {
-				case stateListValue:
-					states[len(states)-1] = stateListItem
-					yieldDecoded(lno, token)
-				case stateMapValue:
-					states[len(states)-1] = stateMapKey
-					yieldDecoded(lno, token)
-				default:
-					yield(lno, Token{Kind: Error, Content: "unexpected value"})
+				state.hasKey = true
+				if state.kind == MapKey && token.Kind == ListItem {
+					if !yield(Token{Lno: token.Lno, Kind: MapKey, Error: fmt.Errorf("unexpected list item")}) {
+						return
+					}
+					continue
 				}
-
-			case MultilineHint:
-				switch state {
-				case stateListValue:
-					states[len(states)-1] = stateListMultiline
-					yieldChecked(lno, token)
-				case stateMapValue:
-					states[len(states)-1] = stateMapMultiline
-					yieldChecked(lno, token)
-				default:
-					yield(lno, Token{Kind: Error, Content: "unexpected multiline hint"})
+				if state.kind == ListItem && token.Kind == MapKey {
+					if !yield(Token{Lno: token.Lno, Kind: ListItem, Error: fmt.Errorf("unexpected map key")}) {
+						return
+					}
+					continue
 				}
+			case Scalar, MultilineScalar:
+				state.hasKey = false
 
-			case MultilineValue:
-				switch state {
-				case stateListValue, stateListMultiline:
-					states[len(states)-1] = stateListItem
-					yieldMultiline(lno, token)
-				case stateMapValue, stateMapMultiline:
-					states[len(states)-1] = stateMapKey
-					yieldMultiline(lno, token)
-
-				default:
-					yield(lno, Token{Kind: Error, Content: "unexpected value"})
-				}
-
+			case Comment, MultilineHint:
+				// pass-through
 			default:
 				panic("Unknown token kind")
 			}
+			lastLine = token.Lno
+			if !yield(token) {
+				return
+			}
 		}
 
-		for len(states) > 1 {
-			switch states[len(states)-1] {
-			case stateListValue, stateMapValue:
-				yield(lastLine, Token{Kind: NoValue, Content: ""})
-				yield(lastLine, Token{Kind: Outdent, Content: ""})
-			case stateListItem, stateMapKey:
-				yield(lastLine, Token{Kind: Outdent, Content: ""})
-			default:
-				yield(lastLine, Token{Kind: Error, Content: "missing value"})
+		for len(states) > 0 {
+			state := states[len(states)-1]
+			if state.hasKey {
+				if !yield(Token{Lno: lastLine, Kind: NoValue, Content: ""}) {
+					return
+				}
+			}
+			if len(states) > 1 {
+				if !yield(Token{Lno: lastLine, Kind: Outdent, Content: ""}) {
+					return
+				}
 			}
 			states = states[:len(states)-1]
-		}
-		switch states[len(states)-1] {
-		case stateListValue, stateMapValue:
-			yield(lastLine, Token{Kind: NoValue, Content: ""})
-		case stateListItem, stateMapKey, stateUnknown:
-			// do nothing
-		default:
-			yield(lastLine, Token{Kind: Error, Content: "missing value"})
 		}
 	}
 }
