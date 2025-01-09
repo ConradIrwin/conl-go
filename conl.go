@@ -330,7 +330,7 @@ var errStop = errorStop{}
 // An [Error] token is yielded for each error encountered during parsing.
 // Parsers can choose to stop at the first error or keep going knowing that the
 // resulting document may be invalid.
-func Tokens(input string) iter.Seq2[int, Token] {
+func Tokens(input []byte) iter.Seq2[int, Token] {
 	states := []parseState{stateUnknown}
 	lastLine := 0
 
@@ -380,7 +380,7 @@ func Tokens(input string) iter.Seq2[int, Token] {
 			yield(lno, token)
 		}
 
-		for lno, token := range tokenize(input) {
+		for lno, token := range tokenize(string(input)) {
 			lastLine = lno
 			state := states[len(states)-1]
 			switch token.Kind {
@@ -398,6 +398,7 @@ func Tokens(input string) iter.Seq2[int, Token] {
 					yield(lno, token)
 				default:
 					yield(lno, Token{Kind: Error, Content: "unexpected indent"})
+					yield(lno, token)
 				}
 
 			case Outdent:

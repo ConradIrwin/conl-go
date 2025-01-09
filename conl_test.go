@@ -16,7 +16,7 @@ func stringToJSON(input string) string {
 	return string(bytes)
 }
 
-func toJSON(content string) (string, error) {
+func toJSON(content []byte) (string, error) {
 	var output strings.Builder
 	next, stop := iter.Pull2(conl.Tokens(content))
 	defer stop()
@@ -99,7 +99,7 @@ func TestEquivalence(t *testing.T) {
 		}
 		input, expected := parts[0], strings.TrimSpace(parts[1])
 
-		output, err := toJSON(input)
+		output, err := toJSON([]byte(input))
 		if err != nil {
 			t.Fatalf("Failed to parse: %v\nInput: %s", err, input)
 		} else if output != expected {
@@ -127,7 +127,7 @@ func TestErrors(t *testing.T) {
 		input = strings.ReplaceAll(input, "?", "\xff")
 		expected = strings.ReplaceAll(expected, "␣", " ")
 
-		output, err := toJSON(input)
+		output, err := toJSON([]byte(input))
 		if err == nil {
 			t.Errorf("Expected to be unable to parse: %s\nGot: %s", input, output)
 		} else {

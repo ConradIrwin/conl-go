@@ -1,0 +1,86 @@
+; A CONL schema is a way to approximate the validity of a CONL document.
+; A schema defines a number of definitions (most importantly the "root")
+; which can be used to determine if the document matches, and produce
+; error messages at nodes that seem to be causing problems.
+root
+  required keys
+    ; The root is matched against the top level of the document.
+    ; It will most often be a <map>, but <list> is also supported.
+    ; CONL does not support scalar types as the root of a document.
+    root = <definition>
+  keys
+    ; Additional definitions can be added as needed, and refered to
+    ; using the <definition> syntax.
+    .* = <definition>
+
+; A definition represents a single type in a CONL document.
+; In addition to the three CONL types (scalar, map and list)
+; A "one of" definition represents a logical OR of possible definitions
+; (potentially of different types).
+definition
+  one of
+    = <scalar>
+    = <map>
+    = <list>
+    = <one of>
+
+; Definitions are built on matchers, which can either be regular expressions
+; to match scalars, or references to other definitions in the schema.
+matcher
+  one of
+    ; references refer to a definition elsewhere in the schema
+    ; references with no matching definition, or circular references
+    ; are not allowed.
+    = \<.*>
+    ; regular expressions match scalars and must match the entire sclara..
+    ; If you want the regex to match a substring, surround it with .*
+    ; If you need to match a scalar starting with <, escape it with \ (as above)
+    = [^<].*
+matcher list
+  items = <matcher>
+
+; A scalar definition allows only a scalar.
+scalar
+  required keys
+    scalar = <matcher>
+
+; A "map" definition matches a CONL map.
+; It must have either required keys or keys,
+map
+  one of
+    = <required map>
+    = <allowed map>
+
+required map
+  required keys
+    required keys = <map keys>
+  keys
+    keys = <map keys>
+
+allowed map
+  required keys
+    keys = <map keys>
+
+map keys
+  keys
+    ; The keys of the maps are also matchers.
+    ; They can be either regular expressions or references to other definitions.
+    <matcher> = <matcher>
+
+list
+  one of
+    = <required list>
+    = <allowed list>
+required list
+  required keys
+    required items = <matcher list>
+  keys
+    items = <matcher>
+allowed list
+  required keys
+    items = <matcher>
+
+; A "one of" definition represents an OR of possible definitions.
+one of
+  required keys
+    one of = <matcher list>

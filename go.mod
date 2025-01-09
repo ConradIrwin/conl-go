@@ -18,3 +18,5 @@ require (
 	golang.org/x/tools v0.28.0 // indirect
 	honnef.co/go/tools v0.5.1 // indirect
 )
+
+replace github.com/ConradIrwin/dbg => ../dbg

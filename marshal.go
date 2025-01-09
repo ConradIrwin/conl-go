@@ -254,7 +254,7 @@ func Unmarshal(data []byte, v any) error {
 		return fmt.Errorf("invalid target, must be a non-nil pointer")
 	}
 
-	iter, done := iter.Pull2(Tokens(string(data)))
+	iter, done := iter.Pull2(Tokens(data))
 	defer done()
 	lastLine := 0
 	nextToken := func() (int, Token) {
