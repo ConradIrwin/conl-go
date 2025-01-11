@@ -9,7 +9,6 @@ import (
 
 	"github.com/ConradIrwin/conl-go"
 	"github.com/ConradIrwin/conl-go/schema"
-	"github.com/ConradIrwin/dbg"
 )
 
 func collectErrors(input string) []string {
@@ -47,7 +46,6 @@ func TestSchemaSelf(t *testing.T) {
 }
 
 func TestSchema(t *testing.T) {
-
 	examples, err := os.ReadFile("testdata/example_schemas.conl")
 	if err != nil {
 		t.Fatalf("Failed to read examples file: %v", err)
@@ -84,7 +82,6 @@ func TestSchema(t *testing.T) {
 				t.Fatalf("couldn't parse schema: %v", err)
 			}
 			expected := collectErrors(parts[1])
-			dbg.Dbg("-------------------------------------------")
 			errors := schema.Validate([]byte(parts[1]))
 			actual := []string{}
 			for _, err := range errors {

@@ -316,3 +316,15 @@ test 4 = abc
   test 4 ; unexpected indent
 test 3 ; expected test 3 = any scalar
 test 6 = asd
+===
+; errors
+test
+  items = .*
+root
+  keys
+    test .* = <test>
+---
+test 1
+  = 1
+  = """ ; missing multiline value
+  a = b ; unexpected map key

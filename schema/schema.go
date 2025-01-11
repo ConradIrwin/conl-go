@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/ConradIrwin/conl-go"
-	"github.com/ConradIrwin/dbg"
 )
 
 // A Schema allows you to validate a CONL document against a set of rules.
@@ -336,6 +335,15 @@ func (m *matcher) validate(s *Schema, val *conlValue, pos *conl.Token) (errors [
 			})
 		return errors
 	}
+	if val.Scalar.Error != nil {
+		errors = append(errors,
+			ValidationError{
+				lno: pos.Lno,
+				err: val.Scalar.Error,
+				key: pos.Content,
+			})
+		return errors
+	}
 	if !m.Pattern.MatchString(val.Scalar.Content) {
 		errors = append(errors, ValidationError{
 			lno:           pos.Lno,
@@ -482,7 +490,6 @@ func parseDoc(input []byte) *conlValue {
 	stack := []*conlValue{root}
 
 	for token := range conl.Tokens(input) {
-		dbg.Dbg(token)
 		current := stack[len(stack)-1]
 
 		switch token.Kind {
