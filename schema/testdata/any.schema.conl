@@ -1,0 +1,15 @@
+root
+  one of
+    = <map>
+    = <list>
+    = <scalar>
+
+scalar
+  scalar = .*
+
+list
+  items = <root>
+
+map
+  keys
+    <scalar> = <root>

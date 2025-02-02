@@ -1,4 +1,6 @@
 github.com/ConradIrwin/dbg v1.0.1 h1:EUi4XqdkC0aL5E9pF/j4yaNqrYameGSeeWqIxx4Ypq0=
 github.com/ConradIrwin/dbg v1.0.1/go.mod h1:JBrIuOw2TGmKc4SpLi1zd37424cI+BkEmyIKBIhHOXc=
+github.com/ConradIrwin/dbg v1.1.1 h1:8yD7OoUnQO//5dveeSoATc/IVwhQpojMARWx2GP5hPE=
+github.com/ConradIrwin/dbg v1.1.1/go.mod h1:JBrIuOw2TGmKc4SpLi1zd37424cI+BkEmyIKBIhHOXc=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

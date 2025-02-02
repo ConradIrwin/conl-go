@@ -27,21 +27,52 @@ func collectErrors(input string) []string {
 }
 
 func TestSchemaSelf(t *testing.T) {
-	input, err := os.ReadFile("testdata/schema.conl")
+	schemaBytes, err := os.ReadFile("testdata/schema.conl")
 	if err != nil {
 		t.Fatalf("Failed to read schema.conl: %v", err)
 	}
 
-	schema, err := schema.Parse(input)
+	anyBytes, err := os.ReadFile("testdata/any.schema.conl")
+	if err != nil {
+		t.Fatalf("Failed to read schema.conl: %v", err)
+	}
+
+	schemaSchema, err := schema.Parse(schemaBytes)
 	if err != nil {
 		t.Fatalf("couldn't parse schema: %v", err)
 	}
-	errs := schema.Validate(input)
+	anySchema, err := schema.Parse(schemaBytes)
+	if err != nil {
+		t.Fatalf("couldn't parse schema: %v", err)
+	}
+
+	errs := anySchema.Validate(anyBytes)
 	if errs != nil {
 		for _, err := range errs {
 			t.Log(err.Error())
 		}
-		t.Fatal("schema validation failed")
+		t.Fatal("any did not match any")
+	}
+	errs = schemaSchema.Validate(anyBytes)
+	if errs != nil {
+		for _, err := range errs {
+			t.Log(err.Error())
+		}
+		t.Fatal("schema did not match any")
+	}
+	errs = anySchema.Validate(schemaBytes)
+	if errs != nil {
+		for _, err := range errs {
+			t.Log(err.Error())
+		}
+		t.Fatal("any did not match schema")
+	}
+	errs = schemaSchema.Validate(schemaBytes)
+	if errs != nil {
+		for _, err := range errs {
+			t.Log(err.Error())
+		}
+		t.Fatal("schema did not match schema")
 	}
 }
 
