@@ -169,7 +169,6 @@ func sumIf(bs ...bool) int {
 }
 
 func (d *definition) resolve(s *Schema, name string, seen []string) error {
-
 	if d.Name != "" {
 		return nil
 	}
@@ -192,28 +191,28 @@ func (d *definition) resolve(s *Schema, name string, seen []string) error {
 		}
 	}
 	for pat, key := range d.Keys {
-		if err := pat.resolve(s, seen); err != nil {
+		if err := pat.resolve(s, []string{}); err != nil {
 			return err
 		}
-		if err := key.resolve(s, seen); err != nil {
+		if err := key.resolve(s, []string{}); err != nil {
 			return err
 		}
 	}
 	for pat, key := range d.RequiredKeys {
-		if err := pat.resolve(s, seen); err != nil {
+		if err := pat.resolve(s, []string{}); err != nil {
 			return err
 		}
-		if err := key.resolve(s, seen); err != nil {
+		if err := key.resolve(s, []string{}); err != nil {
 			return err
 		}
 	}
 	if d.Items != nil {
-		if err := d.Items.resolve(s, seen); err != nil {
+		if err := d.Items.resolve(s, []string{}); err != nil {
 			return err
 		}
 	}
 	for _, item := range d.RequiredItems {
-		if err := item.resolve(s, seen); err != nil {
+		if err := item.resolve(s, []string{}); err != nil {
 			return err
 		}
 	}
@@ -388,7 +387,6 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 			})
 	}
 	return errors
-
 }
 
 type matcher struct {
@@ -407,10 +405,10 @@ func (m *matcher) resolve(s *Schema, seen []string) error {
 	} else if slices.Contains(seen, m.Reference) {
 		return fmt.Errorf("<%s> is defined in terms of itself", m.Reference)
 	}
+	m.Resolved = next
 	if err := next.resolve(s, m.Reference, append(seen, m.Reference)); err != nil {
 		return err
 	}
-	m.Resolved = next
 	return nil
 }
 
