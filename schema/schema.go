@@ -225,6 +225,7 @@ func (d *definition) resolve(s *Schema, name string, seen []string) error {
 }
 
 func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (errors []ValidationError) {
+	dbg.Dbg(d, val)
 	if val.Scalar != nil && val.Scalar.Error != nil {
 		errors = append(errors,
 			ValidationError{
@@ -590,7 +591,6 @@ func splitLine(line string) (int, int, int, int, int) {
 
 // RuneRange returns the 0-based utf-8 based range (assuming the error happened on this line)
 func (ve *ValidationError) RuneRange(line string) (int, int) {
-	dbg.Dbg(ve.token.Kind)
 	switch ve.token.Kind {
 	case conl.Indent:
 		start, _, _, _, _ := splitLine(line)
@@ -607,7 +607,6 @@ func (ve *ValidationError) RuneRange(line string) (int, int) {
 		return start, len(line)
 
 	default:
-		dbg.Dbg(ve.token.Kind)
 		startKey, _, _, endValue, _ := splitLine(line)
 		return startKey, endValue
 	}
