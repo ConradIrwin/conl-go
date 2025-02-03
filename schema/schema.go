@@ -141,7 +141,11 @@ func Parse(input []byte) (*Schema, error) {
 // The exact errors returned will change over time as heuristics improve.
 func (s *Schema) Validate(input []byte) []ValidationError {
 	doc := parseDoc(input)
-	return s.schema["root"].validate(s, doc, &conl.Token{Lno: 1})
+	errs := s.schema["root"].validate(s, doc, &conl.Token{Lno: 1})
+	slices.SortFunc(errs, func(i, j ValidationError) int {
+		return i.token.Lno - j.token.Lno
+	})
+	return errs
 }
 
 type definition struct {
@@ -261,6 +265,7 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 
 	if d.Keys != nil || d.RequiredKeys != nil {
 		seenRequired := make(map[*matcher]bool)
+		seenKeys := make(map[string]bool)
 		if val.Scalar != nil || val.List != nil {
 			token := pos
 			if val.Scalar != nil {
@@ -284,10 +289,28 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 				})
 				continue
 			}
+			if seenKeys[entry.Key.Content] {
+				errors = append(errors, ValidationError{
+					token:        entry.Key,
+					key:          pos.Content,
+					duplicateKey: entry.Key.Content,
+				})
+				continue
+			} else {
+				seenKeys[entry.Key.Content] = true
+			}
 			for keyMatcher, valueMatcher := range d.RequiredKeys {
 				keyErrors := keyMatcher.validate(s, &conlValue{Scalar: entry.Key}, &conl.Token{Lno: entry.Key.Lno})
 				if len(keyErrors) == 0 {
-					seenRequired[keyMatcher] = true
+					if seenRequired[keyMatcher] {
+						errors = append(errors, ValidationError{
+							token:        entry.Key,
+							key:          pos.Content,
+							duplicateKey: fmt.Sprintf("%s", keyMatcher),
+						})
+					} else {
+						seenRequired[keyMatcher] = true
+					}
 					allowed = true
 					errors = append(errors, valueMatcher.validate(s, &entry.Value, entry.Key)...)
 				}
@@ -496,6 +519,7 @@ type ValidationError struct {
 	key           string
 	expectedMatch []string
 	requiredKey   []string
+	duplicateKey  string
 	requiredItem  string
 	unexpected    string
 	err           error
@@ -609,6 +633,9 @@ func (ve *ValidationError) Msg() string {
 
 	case ve.unexpected != "":
 		return fmt.Sprintf("unexpected %v", ve.unexpected)
+
+	case ve.duplicateKey != "":
+		return fmt.Sprintf("duplicate key %v", ve.duplicateKey)
 
 	default:
 		panic(fmt.Errorf("unhandled %#v", ve))

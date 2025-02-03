@@ -328,3 +328,38 @@ test 1
   = 1
   = """ ; 4-7 missing multiline value
   a = b ; 2-3 unexpected map key
+===
+; duplicate required keys
+test
+  required keys
+    a|b = .*
+    c|d = .*
+root
+  keys
+    test .* = <test>
+---
+test 1 ; 0-6 missing required key c|d
+  a = 1
+  b = 2 ; 2-3 duplicate key a|b
+test 2
+  a = 1
+  c = 2
+  d = 3 ; 2-3 duplicate key c|d
+===
+; duplicate allowed keys
+test
+  keys
+    a|b = .*
+root
+  keys
+    test .* = <test>
+---
+test 1
+  a = 1
+  b = 2
+test 2
+  a = 1
+  a = 2 ; 2-3 duplicate key a
+test 3
+  c = 1 ; 2-3 unexpected key c
+  c = 2 ; 2-3 duplicate key c
