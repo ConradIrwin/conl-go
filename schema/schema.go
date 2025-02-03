@@ -104,6 +104,7 @@ import (
 	"strings"
 
 	"github.com/ConradIrwin/conl-go"
+	"github.com/ConradIrwin/dbg"
 )
 
 // A Schema allows you to validate a CONL document against a set of rules.
@@ -223,9 +224,9 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 	if val.Scalar != nil && val.Scalar.Error != nil {
 		errors = append(errors,
 			ValidationError{
-				lno: pos.Lno,
-				key: pos.Content,
-				err: val.Scalar.Error,
+				token: val.Scalar,
+				key:   pos.Content,
+				err:   val.Scalar.Error,
 			})
 		return errors
 	}
@@ -234,7 +235,7 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 		if val.Map != nil || val.List != nil {
 			errors = append(errors,
 				ValidationError{
-					lno:           pos.Lno,
+					token:         val.Scalar,
 					key:           pos.Content,
 					expectedMatch: []string{"any scalar"},
 				})
@@ -249,7 +250,7 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 			if len(nextErrors) == 0 {
 				return nil
 			}
-			if len(errors) == 0 || len(nextErrors) < len(errors) || nextErrors[0].lno >= errors[0].lno {
+			if len(errors) == 0 || len(nextErrors) < len(errors) || nextErrors[0].Lno() >= errors[0].Lno() {
 				errors = mergeErrors(nextErrors, errors)
 			} else {
 				errors = mergeErrors(errors, nextErrors)
@@ -261,9 +262,13 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 	if d.Keys != nil || d.RequiredKeys != nil {
 		seenRequired := make(map[*matcher]bool)
 		if val.Scalar != nil || val.List != nil {
+			token := pos
+			if val.Scalar != nil {
+				token = val.Scalar
+			}
 			errors = append(errors,
 				ValidationError{
-					lno:           pos.Lno,
+					token:         token,
 					key:           pos.Content,
 					expectedMatch: []string{"a map"},
 				})
@@ -274,8 +279,8 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 			allowed := false
 			if entry.Key.Error != nil {
 				errors = append(errors, ValidationError{
-					lno: entry.Key.Lno,
-					err: entry.Key.Error,
+					token: entry.Key,
+					err:   entry.Key.Error,
 				})
 				continue
 			}
@@ -299,7 +304,7 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 			}
 			if !allowed {
 				errors = append(errors, ValidationError{
-					lno:        entry.Key.Lno,
+					token:      entry.Key,
 					key:        entry.Key.Content,
 					unexpected: fmt.Sprintf("key %s", entry.Key.Content),
 				})
@@ -311,7 +316,7 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 		for keyMatcher := range d.RequiredKeys {
 			if !seenRequired[keyMatcher] {
 				errors = append(errors, ValidationError{
-					lno:         pos.Lno,
+					token:       pos,
 					key:         pos.Content,
 					requiredKey: []string{keyMatcher.String()},
 				})
@@ -325,9 +330,13 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 
 	if d.Items != nil || d.RequiredItems != nil {
 		if val.Scalar != nil || val.Map != nil {
+			token := pos
+			if val.Scalar != nil {
+				token = val.Scalar
+			}
 			errors = append(errors,
 				ValidationError{
-					lno:           pos.Lno,
+					token:         token,
 					key:           pos.Content,
 					expectedMatch: []string{"a list"},
 				})
@@ -339,8 +348,8 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 
 				if entry.Key.Error != nil {
 					errors = append(errors, ValidationError{
-						lno: entry.Key.Lno,
-						err: entry.Key.Error,
+						token: entry.Key,
+						err:   entry.Key.Error,
 					})
 					continue
 				}
@@ -349,14 +358,14 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 		}
 		if len(d.RequiredItems) > len(val.List) {
 			errors = append(errors, ValidationError{
-				lno:          pos.Lno,
+				token:        pos,
 				key:          pos.Content,
 				requiredItem: d.RequiredItems[len(val.List)].String(),
 			})
 		}
 		if d.Items == nil && len(val.List) > len(d.RequiredItems) {
 			errors = append(errors, ValidationError{
-				lno:        val.List[len(d.RequiredItems)].Key.Lno,
+				token:      val.List[len(d.RequiredItems)].Key,
 				key:        pos.Content,
 				unexpected: "list item",
 			})
@@ -366,8 +375,8 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 
 			if entry.Key.Error != nil {
 				errors = append(errors, ValidationError{
-					lno: entry.Key.Lno,
-					err: entry.Key.Error,
+					token: entry.Key,
+					err:   entry.Key.Error,
 				})
 				continue
 			}
@@ -379,9 +388,13 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 	}
 
 	if val.List != nil || val.Map != nil || val.Scalar != nil {
+		token := val.Scalar
+		if token == nil {
+			token = pos
+		}
 		errors = append(errors,
 			ValidationError{
-				lno:           pos.Lno,
+				token:         token,
 				key:           pos.Content,
 				expectedMatch: []string{"no value"},
 			})
@@ -419,7 +432,7 @@ func (m *matcher) validate(s *Schema, val *conlValue, pos *conl.Token) (errors [
 	if val.Scalar == nil {
 		errors = append(errors,
 			ValidationError{
-				lno:           pos.Lno,
+				token:         pos,
 				expectedMatch: []string{"any scalar"},
 				key:           pos.Content,
 			})
@@ -428,15 +441,15 @@ func (m *matcher) validate(s *Schema, val *conlValue, pos *conl.Token) (errors [
 	if val.Scalar.Error != nil {
 		errors = append(errors,
 			ValidationError{
-				lno: pos.Lno,
-				err: val.Scalar.Error,
-				key: pos.Content,
+				token: val.Scalar,
+				err:   val.Scalar.Error,
+				key:   pos.Content,
 			})
 		return errors
 	}
 	if !m.Pattern.MatchString(val.Scalar.Content) {
 		errors = append(errors, ValidationError{
-			lno:           pos.Lno,
+			token:         val.Scalar,
 			key:           pos.Content,
 			expectedMatch: []string{m.String()},
 		})
@@ -486,7 +499,7 @@ type ValidationError struct {
 	requiredItem  string
 	unexpected    string
 	err           error
-	lno           int
+	token         *conl.Token
 }
 
 func joinWithOr(items []string) string {
@@ -501,45 +514,121 @@ func joinWithOr(items []string) string {
 
 // Lno returns the 1-indexed line number on which the error occurred.
 func (ve *ValidationError) Lno() int {
-	return ve.lno
+	return ve.token.Lno
 }
 
-func (ve *ValidationError) Error() string {
+var quotedLiteral = regexp.MustCompile(`^"(?:[^\\"]|\\.)*"`)
+
+// returns the range for the key or list item, value, and comment
+func splitLine(line string) (int, int, int, int, int) {
+	trimmed := strings.TrimLeft(line, " \t")
+	startKey := len(line) - len(trimmed)
+	trimmed =
+		quotedLiteral.ReplaceAllStringFunc(trimmed, func(quoted string) string {
+			return strings.Repeat("a", len(quoted))
+		})
+
+	endKey := len(line)
+	startValue := len(line)
+	if strings.HasPrefix(trimmed, "=") {
+		endKey = startKey + 1
+		startValue = endKey
+	} else if found := strings.IndexAny(trimmed, "=;"); found > -1 {
+		endKey = startKey + len(strings.TrimRight(trimmed[:found], " \t"))
+		if trimmed[found] == '=' {
+			startValue = startKey + found + 1
+		} else {
+			startValue = startKey + found
+		}
+	} else {
+		endKey = startKey + len(strings.TrimRight(trimmed, " \t"))
+	}
+	valueHalf := line[startValue:]
+	trimmed = strings.TrimLeft(valueHalf, " \t")
+	startValue += len(valueHalf) - len(trimmed)
+
+	trimmed =
+		quotedLiteral.ReplaceAllStringFunc(trimmed, func(quoted string) string {
+			return strings.Repeat("a", len(quoted))
+		})
+
+	endValue := len(line)
+	startComment := len(line)
+	if found := strings.Index(trimmed, ";"); found > -1 {
+		endValue = startValue + len(strings.TrimRight(trimmed[:found], " \t"))
+		startComment = startValue + found
+	} else {
+		endValue = startValue + len(strings.TrimRight(trimmed, " \t"))
+	}
+
+	return startKey, endKey, startValue, endValue, startComment
+}
+
+// RuneRange returns the 0-based utf-8 based range (assuming the error happened on this line)
+func (ve *ValidationError) RuneRange(line string) (int, int) {
+	dbg.Dbg(ve.token.Kind)
+	switch ve.token.Kind {
+	case conl.Indent:
+		start, _, _, _, _ := splitLine(line)
+		return 0, start
+	case conl.ListItem, conl.MapKey:
+		start, end, _, _, _ := splitLine(line)
+		return start, end
+	case conl.MultilineScalar, conl.Scalar:
+		_, _, start, end, _ := splitLine(line)
+		return start, end
+
+	case conl.Comment:
+		_, _, _, _, start := splitLine(line)
+		return start, len(line)
+
+	default:
+		dbg.Dbg(ve.token.Kind)
+		startKey, _, _, endValue, _ := splitLine(line)
+		return startKey, endValue
+	}
+}
+
+func (ve *ValidationError) Msg() string {
 	switch true {
 	case ve.err != nil:
-		return fmt.Sprintf("%d: %v", ve.lno, ve.err)
+		return ve.err.Error()
 
 	case ve.requiredKey != nil:
-		return fmt.Sprintf("%d: missing required key %v", ve.lno, joinWithOr(ve.requiredKey))
+		return fmt.Sprintf("missing required key %v", joinWithOr(ve.requiredKey))
 
 	case ve.requiredItem != "":
-		return fmt.Sprintf("%d: missing required list item %v", ve.lno, ve.requiredItem)
+		return fmt.Sprintf("missing required list item %v", ve.requiredItem)
 
 	case ve.expectedMatch != nil:
 		if ve.key != "" {
-			return fmt.Sprintf("%d: expected %s = %v", ve.lno, ve.key, joinWithOr(ve.expectedMatch))
+			return fmt.Sprintf("expected %s = %v", ve.key, joinWithOr(ve.expectedMatch))
 		} else {
-			return fmt.Sprintf("%d: expected %v", ve.lno, joinWithOr(ve.expectedMatch))
+			return fmt.Sprintf("expected %v", joinWithOr(ve.expectedMatch))
 		}
 
 	case ve.unexpected != "":
-		return fmt.Sprintf("%d: unexpected %v", ve.lno, ve.unexpected)
+		return fmt.Sprintf("unexpected %v", ve.unexpected)
 
 	default:
 		panic(fmt.Errorf("unhandled %#v", ve))
 	}
 }
 
+func (ve *ValidationError) Error() string {
+	return fmt.Sprintf("%d: %s", ve.Lno(), ve.Msg())
+}
+
 func mergeErrors(a, b []ValidationError) []ValidationError {
 	merged := make([]ValidationError, 0)
-	aMap := make(map[int]ValidationError)
+	aMap := make(map[*conl.Token]ValidationError)
 
 	for _, err := range a {
-		aMap[err.lno] = err
+		aMap[err.token] = err
 	}
 
 	for _, errB := range b {
-		if errA, exists := aMap[errB.lno]; exists {
+		if errA, exists := aMap[errB.token]; exists {
 			merged = append(merged, ValidationError{
 				key:           errA.key,
 				expectedMatch: append(errB.expectedMatch, errA.expectedMatch...),
@@ -547,9 +636,9 @@ func mergeErrors(a, b []ValidationError) []ValidationError {
 				requiredItem:  errA.requiredItem,
 				unexpected:    errA.unexpected,
 				err:           errA.err,
-				lno:           errA.lno,
+				token:         errA.token,
 			})
-			delete(aMap, errB.lno)
+			delete(aMap, errB.token)
 		}
 	}
 
@@ -558,7 +647,7 @@ func mergeErrors(a, b []ValidationError) []ValidationError {
 	}
 
 	slices.SortFunc(merged, func(i, j ValidationError) int {
-		return i.lno - j.lno
+		return i.token.Lno - j.token.Lno
 	})
 
 	return merged

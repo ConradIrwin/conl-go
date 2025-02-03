@@ -1,4 +1,4 @@
-package schema_test
+package schema
 
 import (
 	"fmt"
@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/ConradIrwin/conl-go"
-	"github.com/ConradIrwin/conl-go/schema"
 )
 
 func collectErrors(input string) []string {
@@ -37,11 +36,11 @@ func TestSchemaSelf(t *testing.T) {
 		t.Fatalf("Failed to read schema.conl: %v", err)
 	}
 
-	schemaSchema, err := schema.Parse(schemaBytes)
+	schemaSchema, err := Parse(schemaBytes)
 	if err != nil {
 		t.Fatalf("couldn't parse schema: %v", err)
 	}
-	anySchema, err := schema.Parse(schemaBytes)
+	anySchema, err := Parse(schemaBytes)
 	if err != nil {
 		t.Fatalf("couldn't parse schema: %v", err)
 	}
@@ -90,7 +89,7 @@ func TestSchema(t *testing.T) {
 		t.Fatalf("Failed to read schema.conl: %v", err)
 	}
 
-	metaSchema, err := schema.Parse(input)
+	metaSchema, err := Parse(input)
 	if err != nil {
 		t.Fatalf("couldn't parse schema: %v", err)
 	}
@@ -108,7 +107,7 @@ func TestSchema(t *testing.T) {
 				t.Fatal("schema validation failed")
 			}
 
-			schema, err := schema.Parse([]byte(parts[0]))
+			schema, err := Parse([]byte(parts[0]))
 			if err != nil {
 				t.Fatalf("couldn't parse schema: %v", err)
 			}
@@ -116,7 +115,9 @@ func TestSchema(t *testing.T) {
 			errors := schema.Validate([]byte(parts[1]))
 			actual := []string{}
 			for _, err := range errors {
-				actual = append(actual, err.Error())
+				line := strings.Split(parts[1], "\n")[err.Lno()-1]
+				start, end := err.RuneRange(line)
+				actual = append(actual, fmt.Sprintf("%v: %v-%v %v", err.Lno(), start, end, err.Msg()))
 			}
 			if !slices.Equal(expected, actual) {
 				t.Logf("expected:")
@@ -130,5 +131,42 @@ func TestSchema(t *testing.T) {
 				t.FailNow()
 			}
 		})
+	}
+}
+
+func processString(input string) (string, int, int, int, int, int) {
+	var result strings.Builder
+	var indexes []int
+	currentIndex := 0
+
+	for _, char := range input {
+		if char == '|' {
+			indexes = append(indexes, currentIndex)
+		} else {
+			result.WriteRune(char)
+			currentIndex++
+		}
+	}
+	for len(indexes) < 5 {
+		indexes = append(indexes, indexes[len(indexes)-1])
+	}
+
+	return result.String(), indexes[0], indexes[1], indexes[2], indexes[3], indexes[4]
+}
+
+func TestSplitLine(t *testing.T) {
+
+	for _, string := range []string{
+		// "|a| = |a| |;a",
+		// `|"a = a"| = |"b =|`,
+		// `|"a = a = "b| =|||;`,
+		`  |a| = |b|`,
+		// "|=|",
+	} {
+		input, a, b, c, d, e := processString(string)
+		startKey, endKey, startValue, endValue, startComment := splitLine(input)
+		if startKey != a || endKey != b || startValue != c || endValue != d || startComment != e {
+			t.Errorf("%s: expected: %d, %d, %d, %d, %d, got: %d, %d, %d, %d, %d", input, a, b, c, d, e, startKey, endKey, startValue, endValue, startComment)
+		}
 	}
 }
