@@ -36,11 +36,11 @@ func TestSchemaSelf(t *testing.T) {
 		t.Fatalf("Failed to read schema.conl: %v", err)
 	}
 
-	schemaSchema, err := Parse(anyBytes)
+	schemaSchema, err := Parse(schemaBytes)
 	if err != nil {
 		t.Fatalf("couldn't parse schema: %v", err)
 	}
-	anySchema, err := Parse(schemaBytes)
+	anySchema, err := Parse(anyBytes)
 	if err != nil {
 		t.Fatalf("couldn't parse schema: %v", err)
 	}
@@ -73,46 +73,6 @@ func TestSchemaSelf(t *testing.T) {
 		}
 		t.Fatal("schema did not match schema")
 	}
-
-	watBytes, err := os.ReadFile("testdata/wat.conl")
-	if err != nil {
-		t.Fatalf("Failed to read schema.conl: %v", err)
-	}
-
-	errs = anySchema.Validate(watBytes)
-	if errs != nil {
-		for _, err := range errs {
-			t.Log(err.Error())
-		}
-		t.Fatal("any did not match schema")
-	}
-}
-
-func TestWat(t *testing.T) {
-
-	anyBytes, err := os.ReadFile("testdata/any.schema.conl")
-	if err != nil {
-		t.Fatalf("Failed to read schema.conl: %v", err)
-	}
-
-	anySchema, err := Parse(anyBytes)
-	if err != nil {
-		t.Fatalf("couldn't parse schema: %v", err)
-	}
-
-	watBytes, err := os.ReadFile("testdata/wat.conl")
-	if err != nil {
-		t.Fatalf("Failed to read schema.conl: %v", err)
-	}
-
-	errs := anySchema.Validate(watBytes)
-	if errs != nil {
-		for _, err := range errs {
-			t.Log(err.Error())
-		}
-		t.Fatal("any did not match schema")
-	}
-
 }
 
 func TestSchema(t *testing.T) {

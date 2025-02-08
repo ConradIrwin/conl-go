@@ -104,7 +104,6 @@ import (
 	"strings"
 
 	"github.com/ConradIrwin/conl-go"
-	"github.com/ConradIrwin/dbg"
 )
 
 // A Schema allows you to validate a CONL document against a set of rules.
@@ -225,7 +224,6 @@ func (d *definition) resolve(s *Schema, name string, seen []string) error {
 }
 
 func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (errors []ValidationError) {
-	dbg.Dbg(d, val)
 	if val.Scalar != nil && val.Scalar.Error != nil {
 		errors = append(errors,
 			ValidationError{
@@ -238,9 +236,13 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 
 	if d.Scalar != nil {
 		if val.Map != nil || val.List != nil {
+			token := pos
+			if val.Scalar != nil {
+				token = val.Scalar
+			}
 			errors = append(errors,
 				ValidationError{
-					token:         val.Scalar,
+					token:         token,
 					key:           pos.Content,
 					expectedMatch: []string{"any scalar"},
 				})

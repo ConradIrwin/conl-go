@@ -363,3 +363,25 @@ test 2
 test 3
   c = 1 ; 2-3 unexpected key c
   c = 2 ; 2-3 duplicate key c
+===
+; any schema
+root
+  one of
+    = <map>
+    = <list>
+    = <scalar>
+
+scalar
+  scalar = .*
+
+list
+  items = <root>
+
+map
+  keys
+    <scalar> = <root>
+---
+map
+  keys
+
+  keys ; 2-6 duplicate key keys
