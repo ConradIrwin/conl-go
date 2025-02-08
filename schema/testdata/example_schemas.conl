@@ -385,3 +385,7 @@ map
   keys
 
   keys ; 2-6 duplicate key keys
+
+  "hello" = """bash
+    #!/bin/bash
+    echo "hello world"

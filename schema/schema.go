@@ -195,28 +195,28 @@ func (d *definition) resolve(s *Schema, name string, seen []string) error {
 		}
 	}
 	for pat, key := range d.Keys {
-		if err := pat.resolve(s, []string{}); err != nil {
+		if err := pat.resolve(s, nil); err != nil {
 			return err
 		}
-		if err := key.resolve(s, []string{}); err != nil {
+		if err := key.resolve(s, nil); err != nil {
 			return err
 		}
 	}
 	for pat, key := range d.RequiredKeys {
-		if err := pat.resolve(s, []string{}); err != nil {
+		if err := pat.resolve(s, nil); err != nil {
 			return err
 		}
-		if err := key.resolve(s, []string{}); err != nil {
+		if err := key.resolve(s, nil); err != nil {
 			return err
 		}
 	}
 	if d.Items != nil {
-		if err := d.Items.resolve(s, []string{}); err != nil {
+		if err := d.Items.resolve(s, nil); err != nil {
 			return err
 		}
 	}
 	for _, item := range d.RequiredItems {
-		if err := item.resolve(s, []string{}); err != nil {
+		if err := item.resolve(s, nil); err != nil {
 			return err
 		}
 	}
@@ -257,7 +257,7 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 			if len(nextErrors) == 0 {
 				return nil
 			}
-			if len(errors) == 0 || len(nextErrors) < len(errors) || nextErrors[0].Lno() >= errors[0].Lno() {
+			if len(errors) == 0 || nextErrors[0].Lno() >= errors[0].Lno() {
 				errors = mergeErrors(nextErrors, errors)
 			} else {
 				errors = mergeErrors(errors, nextErrors)
@@ -493,7 +493,7 @@ func (m *matcher) UnmarshalText(data []byte) error {
 		return nil
 	}
 	pattern := &regexp.Regexp{}
-	if err := pattern.UnmarshalText([]byte("^" + string(data) + "$")); err != nil {
+	if err := pattern.UnmarshalText([]byte("(?s)^" + string(data) + "$")); err != nil {
 		return err
 	}
 	m.Pattern = pattern
@@ -503,7 +503,7 @@ func (m *matcher) UnmarshalText(data []byte) error {
 func (m *matcher) String() string {
 	if m.Pattern != nil {
 		s := m.Pattern.String()
-		s = s[1 : len(s)-1]
+		s = s[5 : len(s)-1]
 		if s[0] == '<' {
 			s = "\\" + s
 		}

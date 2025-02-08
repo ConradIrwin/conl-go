@@ -1,12 +1,18 @@
-; A CONL schema is a way to approximate the validity of a CONL document.
+; A CONL schema is a way to validate a CONL document.
+;
 ; A schema defines a number of definitions (most importantly the "root")
-; which can be used to determine if the document matches, and produce
-; error messages at nodes that seem to be causing problems.
+; against which a document can be matched.
+;
+; The expressivity of CONL schema is roughly the same as that of a regular expression.
+; This makes it good for a first-pass validation, but there will likely always be some
+; cases where post-validation is required.
+
+; A CONL spec consists of a "root" definition, and any definitions required
+; to define the root itself.
 root
   required keys
     ; The root is matched against the top level of the document.
-    ; It will most often be a <map>, but <list> is also supported.
-    ; CONL does not support scalar types as the root of a document.
+    ; It will most often be a <map>.
     root = <definition>
   keys
     ; Additional definitions can be added as needed, and refered to
