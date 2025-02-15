@@ -365,7 +365,6 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 		}
 
 		for _, entry := range val.Map {
-			allowed := false
 			if entry.key.Error != nil {
 				errors = append(errors, ValidationError{
 					token: entry.key,
@@ -382,6 +381,8 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 			} else {
 				seenKeys[entry.key.Content] = true
 			}
+			oneOf := []*matcher{}
+
 			for keyMatcher, valueMatcher := range d.RequiredKeys {
 				keyErrors := keyMatcher.validate(s, &conlValue{Scalar: entry.key}, &conl.Token{Lno: entry.key.Lno})
 				if len(keyErrors) == 0 {
@@ -393,29 +394,37 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 					} else {
 						seenRequired[keyMatcher] = true
 					}
-					allowed = true
-					errors = append(errors, valueMatcher.validate(s, &entry.value, entry.key)...)
+					oneOf = append(oneOf, valueMatcher)
 				}
 			}
-			if !allowed {
-				for keyMatcher, valueMatcher := range d.Keys {
-					keyErrors := keyMatcher.validate(s, &conlValue{Scalar: entry.key}, &conl.Token{Lno: entry.key.Lno})
-					if len(keyErrors) == 0 {
-						allowed = true
-						errors = append(errors, valueMatcher.validate(s, &entry.value, entry.key)...)
-						break
-					}
+			for keyMatcher, valueMatcher := range d.Keys {
+				keyErrors := keyMatcher.validate(s, &conlValue{Scalar: entry.key}, &conl.Token{Lno: entry.key.Lno})
+				if len(keyErrors) == 0 {
+					oneOf = append(oneOf, valueMatcher)
 				}
 			}
-			if !allowed {
+			if len(oneOf) == 0 {
 				errors = append(errors, ValidationError{
 					token:      entry.key,
 					unexpected: fmt.Sprintf("key %s", entry.key.Content),
 				})
+				continue
 			}
+			itemErrors := []ValidationError{}
+			for _, item := range oneOf {
+				nextErrors := item.validate(s, &entry.value, entry.key)
+				if len(nextErrors) == 0 {
+					itemErrors = []ValidationError{}
+					break
+				}
+				if len(itemErrors) == 0 || nextErrors[0].Lno() >= itemErrors[0].Lno() {
+					itemErrors = mergeErrors(nextErrors, itemErrors)
+				} else {
+					itemErrors = mergeErrors(itemErrors, nextErrors)
+				}
+			}
+			errors = append(errors, itemErrors...)
 		}
-
-		requiredErrors := []ValidationError{}
 
 		for keyMatcher := range d.RequiredKeys {
 			if !seenRequired[keyMatcher] {
@@ -424,9 +433,6 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 					requiredKey: []string{keyMatcher.String()},
 				})
 			}
-		}
-		if len(requiredErrors) > 0 {
-			return requiredErrors
 		}
 		return errors
 	}
