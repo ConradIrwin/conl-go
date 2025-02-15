@@ -26,7 +26,7 @@ func collectErrors(input string) []string {
 }
 
 func TestSchemaSelf(t *testing.T) {
-	schemaBytes, err := os.ReadFile("testdata/schema.conl")
+	schemaBytes, err := os.ReadFile("testdata/schema.schema.conl")
 	if err != nil {
 		t.Fatalf("Failed to read schema.conl: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestSchema(t *testing.T) {
 	examplesStr := strings.ReplaceAll(string(examples), "␉", "\t")
 	examplesStr = strings.ReplaceAll(examplesStr, "␊", "\r")
 
-	input, err := os.ReadFile("testdata/schema.conl")
+	input, err := os.ReadFile("testdata/schema.schema.conl")
 	if err != nil {
 		t.Fatalf("Failed to read schema.conl: %v", err)
 	}
