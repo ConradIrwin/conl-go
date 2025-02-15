@@ -219,7 +219,7 @@ test 1
  = true
  = false
 test 2
- = foo ; 3-6 expected true or false
+ = foo ; 3-6 expected false or true
 test 3
 
 ===
@@ -276,7 +276,7 @@ root
   keys
     test .* = <test>
 ---
-test 1 = false ; 9-14 expected test 1 = true or a map
+test 1 = false ; 9-14 expected test 1 = a map or true
 
 ===
 ; mixed types list
@@ -295,7 +295,7 @@ root
   keys
     test .* = <test>
 ---
-test 1 = false ; 9-14 expected test 1 = a map or a list
+test 1 = false ; 9-14 expected test 1 = a list or a map
 test 2
   = 5s
 test 3 ; 0-6 missing required key timeout
@@ -389,3 +389,61 @@ map
   "hello" = """bash
     #!/bin/bash
     echo "hello world"
+
+===
+root
+  keys
+    .* = <schema>
+schema
+  required keys
+    root = <definition>
+  keys
+    .* = <definition>
+    schema = .*
+definition
+  one of
+    = <scalar>
+    = <map>
+    = <list>
+    = <one of>
+matcher
+  scalar = .*
+scalar
+  required keys
+    scalar = <matcher>
+one of
+  required keys
+    one of = <matcher list>
+
+matcher list
+  items = <matcher>
+map
+  one of
+    = <required map>
+    = <allowed map>
+required map
+  required keys
+    required keys = <map keys>
+  keys
+    keys = <map keys>
+allowed map
+  required keys
+    keys = <map keys>
+map keys
+  keys
+    <matcher> = <matcher>
+list
+  one of
+    = <required list>
+    = <allowed list>
+required list
+  required keys
+    required items = <matcher list>
+  keys
+    items = <matcher>
+allowed list
+  required keys
+    items = <matcher>
+---
+test 1
+  root = b ; 9-10 expected a map

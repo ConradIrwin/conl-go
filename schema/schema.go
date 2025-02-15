@@ -102,6 +102,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/ConradIrwin/conl-go"
 )
@@ -141,6 +142,90 @@ func Parse(input []byte) (*Schema, error) {
 func (s *Schema) Validate(input []byte) []ValidationError {
 	doc := parseDoc(input)
 	errs := s.schema["root"].validate(s, doc, &conl.Token{Lno: 1})
+	slices.SortFunc(errs, func(i, j ValidationError) int {
+		return i.token.Lno - j.token.Lno
+	})
+	return errs
+}
+
+var anySchema *Schema
+var once sync.Once
+
+// Any is a schema that validates any CONL document.
+func Any() *Schema {
+	once.Do(func() {
+		sch, err := Parse([]byte(`
+root
+  one of
+    = <map>
+    = <list>
+    = <scalar>
+
+scalar
+  scalar = .*
+
+list
+  items = <root>
+
+map
+  keys
+    <scalar> = <root>
+    `))
+		if err != nil {
+			panic(err)
+		}
+		anySchema = sch
+	})
+	return anySchema
+}
+
+// Validate a CONL document. The `load()` function will be called once. If a top-level "schema"
+// key is present, it's value is passed, otherwise "" is given. If the load function is nil,
+// or returns nil, nil, then [Any] is used. If the load function returns an error it is returned
+// as a ValidationError on either the token providing the schema definition, or the first token
+// in the file.
+func Validate(input []byte, load func(schema string) (*Schema, error)) []ValidationError {
+	doc := parseDoc(input)
+	var schema *Schema
+	var err error
+	var validationError *ValidationError
+	for _, entry := range doc.Map {
+		if entry.key != nil && entry.key.Content == "schema" && entry.value.Scalar != nil {
+			schema, err = load(entry.value.Scalar.Content)
+			load = nil
+			if err != nil {
+				validationError = &ValidationError{
+					key:   entry.key.Content,
+					err:   err,
+					token: entry.value.Scalar,
+				}
+			}
+			break
+		}
+	}
+	if load != nil {
+		schema, err = load("")
+		if err != nil {
+			for _, entry := range doc.Map {
+				if entry.key != nil {
+					validationError = &ValidationError{
+						err:   err,
+						token: entry.key,
+					}
+					break
+				}
+			}
+		}
+	}
+
+	if schema == nil {
+		schema = Any()
+	}
+
+	errs := schema.schema["root"].validate(schema, doc, &conl.Token{Lno: 1})
+	if validationError != nil {
+		errs = append(errs, *validationError)
+	}
 	slices.SortFunc(errs, func(i, j ValidationError) int {
 		return i.token.Lno - j.token.Lno
 	})
@@ -285,29 +370,29 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 
 		for _, entry := range val.Map {
 			allowed := false
-			if entry.Key.Error != nil {
+			if entry.key.Error != nil {
 				errors = append(errors, ValidationError{
-					token: entry.Key,
-					err:   entry.Key.Error,
+					token: entry.key,
+					err:   entry.key.Error,
 				})
 				continue
 			}
-			if seenKeys[entry.Key.Content] {
+			if seenKeys[entry.key.Content] {
 				errors = append(errors, ValidationError{
-					token:        entry.Key,
+					token:        entry.key,
 					key:          pos.Content,
-					duplicateKey: entry.Key.Content,
+					duplicateKey: entry.key.Content,
 				})
 				continue
 			} else {
-				seenKeys[entry.Key.Content] = true
+				seenKeys[entry.key.Content] = true
 			}
 			for keyMatcher, valueMatcher := range d.RequiredKeys {
-				keyErrors := keyMatcher.validate(s, &conlValue{Scalar: entry.Key}, &conl.Token{Lno: entry.Key.Lno})
+				keyErrors := keyMatcher.validate(s, &conlValue{Scalar: entry.key}, &conl.Token{Lno: entry.key.Lno})
 				if len(keyErrors) == 0 {
 					if seenRequired[keyMatcher] {
 						errors = append(errors, ValidationError{
-							token:        entry.Key,
+							token:        entry.key,
 							key:          pos.Content,
 							duplicateKey: fmt.Sprintf("%s", keyMatcher),
 						})
@@ -315,24 +400,24 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 						seenRequired[keyMatcher] = true
 					}
 					allowed = true
-					errors = append(errors, valueMatcher.validate(s, &entry.Value, entry.Key)...)
+					errors = append(errors, valueMatcher.validate(s, &entry.value, entry.key)...)
 				}
 			}
 			if !allowed {
 				for keyMatcher, valueMatcher := range d.Keys {
-					keyErrors := keyMatcher.validate(s, &conlValue{Scalar: entry.Key}, &conl.Token{Lno: entry.Key.Lno})
+					keyErrors := keyMatcher.validate(s, &conlValue{Scalar: entry.key}, &conl.Token{Lno: entry.key.Lno})
 					if len(keyErrors) == 0 {
 						allowed = true
-						errors = append(errors, valueMatcher.validate(s, &entry.Value, entry.Key)...)
+						errors = append(errors, valueMatcher.validate(s, &entry.value, entry.key)...)
 						break
 					}
 				}
 			}
 			if !allowed {
 				errors = append(errors, ValidationError{
-					token:      entry.Key,
-					key:        entry.Key.Content,
-					unexpected: fmt.Sprintf("key %s", entry.Key.Content),
+					token:      entry.key,
+					key:        entry.key.Content,
+					unexpected: fmt.Sprintf("key %s", entry.key.Content),
 				})
 			}
 		}
@@ -372,14 +457,14 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 			if i < len(val.List) {
 				entry := &val.List[i]
 
-				if entry.Key.Error != nil {
+				if entry.key.Error != nil {
 					errors = append(errors, ValidationError{
-						token: entry.Key,
-						err:   entry.Key.Error,
+						token: entry.key,
+						err:   entry.key.Error,
 					})
 					continue
 				}
-				errors = append(errors, valueMatcher.validate(s, &entry.Value, entry.Key)...)
+				errors = append(errors, valueMatcher.validate(s, &entry.value, entry.key)...)
 			}
 		}
 		if len(d.RequiredItems) > len(val.List) {
@@ -391,7 +476,7 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 		}
 		if d.Items == nil && len(val.List) > len(d.RequiredItems) {
 			errors = append(errors, ValidationError{
-				token:      val.List[len(d.RequiredItems)].Key,
+				token:      val.List[len(d.RequiredItems)].key,
 				key:        pos.Content,
 				unexpected: "list item",
 			})
@@ -399,15 +484,15 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 		for i := len(d.RequiredItems); i < len(val.List); i++ {
 			entry := &val.List[i]
 
-			if entry.Key.Error != nil {
+			if entry.key.Error != nil {
 				errors = append(errors, ValidationError{
-					token: entry.Key,
-					err:   entry.Key.Error,
+					token: entry.key,
+					err:   entry.key.Error,
 				})
 				continue
 			}
 			if d.Items != nil {
-				errors = append(errors, d.Items.validate(s, &entry.Value, entry.Key)...)
+				errors = append(errors, d.Items.validate(s, &entry.value, entry.key)...)
 			}
 		}
 		return errors
@@ -657,10 +742,14 @@ func mergeErrors(a, b []ValidationError) []ValidationError {
 
 	for _, errB := range b {
 		if errA, exists := aMap[errB.token]; exists {
+			expected := append(errB.expectedMatch, errA.expectedMatch...)
+			slices.Sort(expected)
+			required := append(errB.requiredKey, errA.requiredKey...)
+			slices.Sort(required)
 			merged = append(merged, ValidationError{
 				key:           errA.key,
-				expectedMatch: append(errB.expectedMatch, errA.expectedMatch...),
-				requiredKey:   append(errB.requiredKey, errA.requiredKey...),
+				expectedMatch: slices.Compact(expected),
+				requiredKey:   slices.Compact(required),
 				requiredItem:  errA.requiredItem,
 				unexpected:    errA.unexpected,
 				err:           errA.err,
@@ -682,8 +771,8 @@ func mergeErrors(a, b []ValidationError) []ValidationError {
 }
 
 type entry struct {
-	Key   *conl.Token
-	Value conlValue
+	key   *conl.Token
+	value conlValue
 }
 
 type conlValue struct {
@@ -701,25 +790,25 @@ func parseDoc(input []byte) *conlValue {
 
 		switch token.Kind {
 		case conl.MapKey:
-			current.Map = append(current.Map, entry{Key: &token})
+			current.Map = append(current.Map, entry{key: &token})
 
 		case conl.ListItem:
-			current.List = append(current.List, entry{Key: &token})
+			current.List = append(current.List, entry{key: &token})
 
 		case conl.Scalar, conl.MultilineScalar:
 			if len(current.Map) > 0 {
-				current.Map[len(current.Map)-1].Value = conlValue{Scalar: &token}
+				current.Map[len(current.Map)-1].value = conlValue{Scalar: &token}
 			} else {
-				current.List[len(current.List)-1].Value = conlValue{Scalar: &token}
+				current.List[len(current.List)-1].value = conlValue{Scalar: &token}
 			}
 
 		case conl.Indent:
 			if len(current.Map) > 0 {
-				current.Map[len(current.Map)-1].Value = conlValue{}
-				stack = append(stack, &current.Map[len(current.Map)-1].Value)
+				current.Map[len(current.Map)-1].value = conlValue{}
+				stack = append(stack, &current.Map[len(current.Map)-1].value)
 			} else {
-				current.List[len(current.List)-1].Value = conlValue{}
-				stack = append(stack, &current.List[len(current.List)-1].Value)
+				current.List[len(current.List)-1].value = conlValue{}
+				stack = append(stack, &current.List[len(current.List)-1].value)
 			}
 		case conl.Outdent:
 			stack = stack[:len(stack)-1]

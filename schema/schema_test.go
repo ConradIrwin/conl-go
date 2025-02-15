@@ -155,18 +155,51 @@ func processString(input string) (string, int, int, int, int, int) {
 }
 
 func TestSplitLine(t *testing.T) {
-
 	for _, string := range []string{
-		// "|a| = |a| |;a",
-		// `|"a = a"| = |"b =|`,
-		// `|"a = a = "b| =|||;`,
+		"|a| = |a| |;a",
+		`|"a = a"| = |"b =|`,
+		`|"a = a = "b| =|||;`,
 		`  |a| = |b|`,
-		// "|=|",
+		"|=|",
 	} {
 		input, a, b, c, d, e := processString(string)
 		startKey, endKey, startValue, endValue, startComment := splitLine(input)
 		if startKey != a || endKey != b || startValue != c || endValue != d || startComment != e {
 			t.Errorf("%s: expected: %d, %d, %d, %d, %d, got: %d, %d, %d, %d, %d", input, a, b, c, d, e, startKey, endKey, startValue, endValue, startComment)
 		}
+	}
+}
+
+func TestLoad(t *testing.T) {
+	if Validate([]byte{}, func(schema string) (*Schema, error) {
+		return nil, nil
+	}) != nil {
+		t.Fatalf("empty document should validate")
+	}
+
+	if Validate([]byte{}, func(schema string) (*Schema, error) {
+		return nil, fmt.Errorf("wow")
+	}) != nil {
+		t.Fatalf("empty document should validate")
+	}
+
+	if len(Validate([]byte(`"`), nil)) != 1 {
+		t.Fatalf("isolated quote should not validate")
+	}
+
+	errs := Validate([]byte("a\n\""), func(schema string) (*Schema, error) {
+		return nil, fmt.Errorf("failed to load schema")
+	})
+	if len(errs) != 2 {
+		for _, err := range errs {
+			t.Log(err.Error())
+		}
+		t.Fatalf("schema errors should be reported in addition to content errors")
+	}
+	if errs[0].Error() != "1: failed to load schema" {
+		t.Fatalf("got %#v, not schema error", errs[0].Error())
+	}
+	if errs[1].Error() != "2: unclosed quotes" {
+		t.Fatalf("got %#v, not quote error", errs[1].Error())
 	}
 }
