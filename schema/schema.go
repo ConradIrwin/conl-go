@@ -195,7 +195,6 @@ func Validate(input []byte, load func(schema string) (*Schema, error)) []Validat
 			load = nil
 			if err != nil {
 				validationError = &ValidationError{
-					key:   entry.key.Content,
 					err:   err,
 					token: entry.value.Scalar,
 				}
@@ -313,7 +312,6 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 		errors = append(errors,
 			ValidationError{
 				token: val.Scalar,
-				key:   pos.Content,
 				err:   val.Scalar.Error,
 			})
 		return errors
@@ -328,7 +326,6 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 			errors = append(errors,
 				ValidationError{
 					token:         token,
-					key:           pos.Content,
 					expectedMatch: []string{"any scalar"},
 				})
 			return errors
@@ -362,7 +359,6 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 			errors = append(errors,
 				ValidationError{
 					token:         token,
-					key:           pos.Content,
 					expectedMatch: []string{"a map"},
 				})
 			return errors
@@ -380,7 +376,6 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 			if seenKeys[entry.key.Content] {
 				errors = append(errors, ValidationError{
 					token:        entry.key,
-					key:          pos.Content,
 					duplicateKey: entry.key.Content,
 				})
 				continue
@@ -393,7 +388,6 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 					if seenRequired[keyMatcher] {
 						errors = append(errors, ValidationError{
 							token:        entry.key,
-							key:          pos.Content,
 							duplicateKey: fmt.Sprintf("%s", keyMatcher),
 						})
 					} else {
@@ -416,7 +410,6 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 			if !allowed {
 				errors = append(errors, ValidationError{
 					token:      entry.key,
-					key:        entry.key.Content,
 					unexpected: fmt.Sprintf("key %s", entry.key.Content),
 				})
 			}
@@ -428,7 +421,6 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 			if !seenRequired[keyMatcher] {
 				errors = append(errors, ValidationError{
 					token:       pos,
-					key:         pos.Content,
 					requiredKey: []string{keyMatcher.String()},
 				})
 			}
@@ -448,7 +440,6 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 			errors = append(errors,
 				ValidationError{
 					token:         token,
-					key:           pos.Content,
 					expectedMatch: []string{"a list"},
 				})
 			return errors
@@ -470,14 +461,12 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 		if len(d.RequiredItems) > len(val.List) {
 			errors = append(errors, ValidationError{
 				token:        pos,
-				key:          pos.Content,
 				requiredItem: d.RequiredItems[len(val.List)].String(),
 			})
 		}
 		if d.Items == nil && len(val.List) > len(d.RequiredItems) {
 			errors = append(errors, ValidationError{
 				token:      val.List[len(d.RequiredItems)].key,
-				key:        pos.Content,
 				unexpected: "list item",
 			})
 		}
@@ -506,7 +495,6 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 		errors = append(errors,
 			ValidationError{
 				token:         token,
-				key:           pos.Content,
 				expectedMatch: []string{"no value"},
 			})
 	}
@@ -545,7 +533,6 @@ func (m *matcher) validate(s *Schema, val *conlValue, pos *conl.Token) (errors [
 			ValidationError{
 				token:         pos,
 				expectedMatch: []string{"any scalar"},
-				key:           pos.Content,
 			})
 		return errors
 	}
@@ -554,14 +541,12 @@ func (m *matcher) validate(s *Schema, val *conlValue, pos *conl.Token) (errors [
 			ValidationError{
 				token: val.Scalar,
 				err:   val.Scalar.Error,
-				key:   pos.Content,
 			})
 		return errors
 	}
 	if !m.Pattern.MatchString(val.Scalar.Content) {
 		errors = append(errors, ValidationError{
 			token:         val.Scalar,
-			key:           pos.Content,
 			expectedMatch: []string{m.String()},
 		})
 		return errors
@@ -604,7 +589,6 @@ func (m *matcher) MarshalText() ([]byte, error) {
 // A ValidationError represents a single validation error.
 // Use .Error() to get the message, and use .Lno to get the line number.
 type ValidationError struct {
-	key           string
 	expectedMatch []string
 	requiredKey   []string
 	duplicateKey  string
@@ -711,11 +695,7 @@ func (ve *ValidationError) Msg() string {
 		return fmt.Sprintf("missing required list item %v", ve.requiredItem)
 
 	case ve.expectedMatch != nil:
-		if ve.key != "" {
-			return fmt.Sprintf("expected %s = %v", ve.key, joinWithOr(ve.expectedMatch))
-		} else {
-			return fmt.Sprintf("expected %v", joinWithOr(ve.expectedMatch))
-		}
+		return fmt.Sprintf("expected %v", joinWithOr(ve.expectedMatch))
 
 	case ve.unexpected != "":
 		return fmt.Sprintf("unexpected %v", ve.unexpected)
@@ -747,7 +727,6 @@ func mergeErrors(a, b []ValidationError) []ValidationError {
 			required := append(errB.requiredKey, errA.requiredKey...)
 			slices.Sort(required)
 			merged = append(merged, ValidationError{
-				key:           errA.key,
 				expectedMatch: slices.Compact(expected),
 				requiredKey:   slices.Compact(required),
 				requiredItem:  errA.requiredItem,

@@ -3,7 +3,7 @@ root
   keys
     username = \w+
 ---
-username = * ; 11-12 expected username = \w+
+username = * ; 11-12 expected \w+
 
 ===
 ; two errors
@@ -11,7 +11,7 @@ root
   keys
     username = \w+
 ---
-username = * ; 11-12 expected username = \w+
+username = * ; 11-12 expected \w+
 password = example ; 0-8 unexpected key password
 
 ===
@@ -44,7 +44,7 @@ root
     username = \w+
     code .* = [0-9]+
 ---
-code home = 123r ; 12-16 expected code home = [0-9]+
+code home = 123r ; 12-16 expected [0-9]+
 ===
 ; empty
 test
@@ -63,8 +63,8 @@ root
   keys
     test .* = <test>
 ---
-test 1 = a ; 9-10 expected test 1 = no value
-test 2 ; 0-6 expected test 2 = no value
+test 1 = a ; 9-10 expected no value
+test 2 ; 0-6 expected no value
   = a
 
 ===
@@ -86,7 +86,7 @@ root
     test = <test>
 ---
 test
-  code home = 123r ; 14-18 expected code home = [0-9]+
+  code home = 123r ; 14-18 expected [0-9]+
 
 ===
 ; one of scalars
@@ -101,7 +101,7 @@ root
 ---
 test a = a
 test b = b
-test d = d ; 9-10 expected test d = a, b or c
+test d = d ; 9-10 expected a, b or c
 
 ===
 ; one of required keys
@@ -124,7 +124,7 @@ test a
 test b
   type = b
 test c
-  type = c ; 9-10 expected type = a or b
+  type = c ; 9-10 expected a or b
 
 ===
 ; one of required keys more
@@ -193,13 +193,13 @@ root
 ---
 test 1
   a = true
-  c = true ; 6-10 expected c = false
+  c = true ; 6-10 expected false
 test 2
   a = true
   c = false
 test 3
   b = true
-  c = false ; 6-11 expected c = true
+  c = false ; 6-11 expected true
 
 ===
 ; simple lists
@@ -276,7 +276,7 @@ root
   keys
     test .* = <test>
 ---
-test 1 = false ; 9-14 expected test 1 = a map or true
+test 1 = false ; 9-14 expected a map or true
 
 ===
 ; mixed types list
@@ -295,7 +295,7 @@ root
   keys
     test .* = <test>
 ---
-test 1 = false ; 9-14 expected test 1 = a list or a map
+test 1 = false ; 9-14 expected a list or a map
 test 2
   = 5s
 test 3 ; 0-6 missing required key timeout
@@ -311,10 +311,10 @@ root
     test .* = <test>
 ---
 test 1 = abc
-test 2 = 123 ; 9-12 expected test 2 = [a-z]+
+test 2 = 123 ; 9-12 expected [a-z]+
 test 4 = abc
   test 4 ; 2-8 unexpected indent
-test 3 ; 0-6 expected test 3 = any scalar
+test 3 ; 0-6 expected any scalar
 test 6 = asd
 ===
 ; errors
