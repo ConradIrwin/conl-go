@@ -1,100 +1,5 @@
 // package schema provides a mechanism to validate the structure
 // of a CONL document.
-//
-// A schema is itself a CONL document that maps keys to definitions.
-// The "root" is matched against the target document, and the other
-// definitions can be used to build (potentially recursive) structures.
-//
-// A definition is a map with the following possible keys:
-//   - "scalar" - the value must be a matching scalar.
-//   - "keys" - a map of matchers to matchers. The target document
-//     must contain a map at this position. For each key value pair in the
-//     target document, the key must match one of the matchers in the map,
-//     and the value must match its corresponding value (unless they were already
-//     matched by "required keys")
-//   - "required keys" - a map of matchers to matchers. The target document
-//     must contain a map at this position, and at least one key value pair
-//     in the map must match a key value pair in the required keys map.
-//   - "items" - a single matchers. The target document
-//     must contain a list at this position. Each item in the list (that
-//     is not matched by a "required items" in the same definition) must
-//     match.
-//   - "required items" - a list of matchers. The target document
-//     must contain a list at this position. Each item in the list in the target document
-//     must match the corresponding matcher in the definition. No extra items are allowed
-//     unless "items" is also specified.
-//   - "one of" - a list of matchers. The target document must match one of them.
-//
-// Other than "keys" and "required keys", or "items" and "required items",
-// which can be paired; the definition must only have one key.
-//
-// The matchers are scalars that either define a regular expression to match against
-// a scalar int he document; or reference another definition in the schema. If the matcher
-// is of the form <.*> it refers to an existing definition; otherwise it is a regular expression
-// that matches a scalar. The regular expressions must match the entire value, so (for example):
-// "a" matches "a", but not "cat".
-//
-// # Examples
-//
-// This example schema
-//
-//	root
-//	  required keys
-//	    version = \d+
-//	  keys
-//	    id = [a-zA-Z]+
-//
-// matches the CONL documents
-//
-//	version = 1
-//
-// or,
-//
-//	version = 1
-//	id = elephant
-//
-// but not
-//
-//	id = elephant ; missing required key "version"
-//
-// or
-//
-//	version = 1
-//	id = elephant
-//	name = "The Elephant" ; error unexpected key
-//
-// This example schema:
-//
-//	root
-//	  keys
-//	    authors = <author>
-//	author
-//	  one of
-//	    = <author details>
-//	    = <author list>
-//	author details
-//	  scalar = .+ <.+@.+>
-//	author list
-//	  items = <author details>
-//
-// Matches
-//
-//	authors = Conrad <conrad.irwin@gmail.com>
-//
-// or
-//
-//	authors
-//	  = Conrad <conrad.irwin@gmail.com>
-//	  = Kate <kate@example.com>
-//
-// but not
-//
-//	authors = conrad.irwin@gmail.com ; error expected authors to match .+ <.+@.+>
-//
-// or
-//
-//	authors
-//	  = Kate
 package schema
 
 import (
@@ -159,18 +64,13 @@ root
   one of
     = <map>
     = <list>
-    = <scalar>
-
-scalar
-  scalar = .*
-
+    = .*
 list
   items = <root>
-
 map
   keys
-    <scalar> = <root>
-    `))
+    .* = <root>
+`))
 		if err != nil {
 			panic(err)
 		}
@@ -181,9 +81,9 @@ map
 
 // Validate a CONL document. The `load()` function will be called once. If a top-level "schema"
 // key is present, it's value is passed, otherwise "" is given. If the load function is nil,
-// or returns nil, nil, then [Any] is used. If the load function returns an error it is returned
+// or returns nil, then [Any] is used. If the load function returns an error it is returned
 // as a ValidationError on either the token providing the schema definition, or the first token
-// in the file.
+// in the file, in addition to any errors that would be reported by conl.Parse.
 func Validate(input []byte, load func(schema string) (*Schema, error)) []ValidationError {
 	doc := parseDoc(input)
 	var schema *Schema
@@ -666,7 +566,9 @@ func splitLine(line string) (int, int, int, int, int) {
 	return startKey, endKey, startValue, endValue, startComment
 }
 
-// RuneRange returns the 0-based utf-8 based range (assuming the error happened on this line)
+// RuneRange returns the 0-based utf-8 based range at which the error
+// occurred (assuming that the provided line corresponds to Lno in the
+// original document).
 func (ve *ValidationError) RuneRange(line string) (int, int) {
 	switch ve.token.Kind {
 	case conl.Indent:
@@ -689,6 +591,8 @@ func (ve *ValidationError) RuneRange(line string) (int, int) {
 	}
 }
 
+// Msg returns a human-readable description of the problem suitable for
+// showing to end-users.
 func (ve *ValidationError) Msg() string {
 	switch true {
 	case ve.err != nil:
@@ -714,6 +618,7 @@ func (ve *ValidationError) Msg() string {
 	}
 }
 
+// Error implements the error interface
 func (ve *ValidationError) Error() string {
 	return fmt.Sprintf("%d: %s", ve.Lno(), ve.Msg())
 }

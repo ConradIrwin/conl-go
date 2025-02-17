@@ -1,67 +1,24 @@
-; A CONL schema is a way to validate a CONL document.
+; A CONL schema describes a set of CONL documents.
 ;
-; A schema defines a number of definitions (most importantly the "root")
-; against which a document can be matched.
+; It consists of a map of named definitions, each built up of matchers.
 ;
-; The expressivity of CONL schema is roughly the same as that of a regular expression.
-; This makes it good for a first-pass validation, but there will likely always be some
-; cases where post-validation is required.
-;
-; This document is a meta-schema. It is a schema the defines the possible valid schemas,
-; and validates against itself.
-root
-  required keys
-    ; The root is matched against the top level of the document.
-    ; It will most often be a <map>.
-    root = <definition>
-  keys
-    ; Additional definitions can be added as needed, and refered to
-    ; using the <definition> syntax.
-    .* = <definition>
-    ; allow a CONL Schema definition too.
-    schema = .*
+matcher
+  one of
+    ; If a matcher starts with < it is a reference to a definition
+    ; elsewhere in the schema. Values match this matcher if they match
+    ; that definition.
+    = \<(.*)>
+    ; Otherwise, it is a regular expression. Values match this matcher
+    ; if they are scalars that match the regular expression.
+    = [^<].*
 
-; A definition represents a single type in a CONL document.
-; In addition to the three CONL types (scalar, map and list)
-; A "one of" definition represents a logical OR of possible definitions
-; (potentially of different types).
+; There are four kinds of definition.
 definition
   one of
     = <scalar>
     = <map>
     = <list>
     = <one of>
-
-; Definitions are built on matchers, which can either be regular expressions
-; to match scalars, or references to other definitions in the schema.
-matcher
-  one of
-    = <regexp>
-    = <reference>
-
-; references refer to a definition elsewhere in the schema
-; references with no matching definition, or circular references
-; are not allowed.
-reference
-  scalar = \<.*>
-
-; Regular expressions are used to match scalars.
-;
-; Regular expression engines have different interpretations of syntax.
-; That said, if you stick to a common subset you should be fine.
-;
-; A few things to note:
-; = The pattern is anchored. Implementors may need to add ^ and $ to the pattern.
-; = The . character matches any unciode character. Implementors may need to set the "s" flag to match \n.
-; = The grouping and alternation operators (),  (?:) and } should work.
-; = The quantifiers {a,b}, ?, * and + should work (for reasonable values of a and b).
-; = The syntax of [] containing unicode characters or ranges should work.
-;
-; If you choose to use regex features beyond that, be aware that the results of matching
-; will be implementation dependendant.
-regexp
-  scalar = [^<].*
-
 
 ; A scalar definition matches a scalar against the given matcher.
 ; In practice this means that the matcher must either be a regular expression,
@@ -81,38 +38,42 @@ one of
 matcher list
   items = <matcher>
 
+; A list definition matcches a list.
+list
+  keys
+    ; If required items is present, then the list must be at least
+    ; as long as the required items list. From the start of the list
+    ; each item must match the corresponding matcher in the required
+    ; items list.
+    required items = <matcher list>
+    ; If items is present then each item (except the required items)
+    ; must match the matcher. If no items key is present the list
+    ; must be exactly the length of the required items key (or empty).
+    items = <matcher>
+
 ; A "map" definition matches a CONL map.
-; It must have either required keys or keys,
 map
-  one of
-    = <required map>
-    = <allowed map>
-
-required map
-  required keys
-    required keys = <map keys>
   keys
-    keys = <map keys>
+    ; if requried keys is set, then exactly one key-value pair in the target
+    ; map must match each required key-value pair.
+    required keys = <matcher map>
+    ; if keys is set, then every key-value pair in the target map
+    ; (excerpt for those that matched on required keys) must match one of
+    ; the key-value pairs in the matcher map.
+    keys = <matcher map>
 
-allowed map
-  required keys
-    keys = <map keys>
-
-map keys
+matcher map
   keys
-    ; The keys of the maps are also matchers.
-    ; They can be either regular expressions or references to other definitions.
     <matcher> = <matcher>
 
-list
-  one of
-    = <required list>
-    = <allowed list>
-required list
+; The "root" definition is matched against the entire document.
+root
   required keys
-    required items = <matcher list>
+    root = <definition>
   keys
-    items = <matcher>
-allowed list
-  required keys
-    items = <matcher>
+    ; The "well-known" key schema is a scalar reference to a CONL schema.
+    ; e.g. https://conl.dev/schema/schema.conl
+    schema = .*
+    ; Additional definitions can be added as needed, and refered to
+    ; using the <definition> syntax.
+    .* = <definition>
