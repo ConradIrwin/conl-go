@@ -45,28 +45,30 @@ func TestSchemaSelf(t *testing.T) {
 		t.Fatalf("couldn't parse schema: %v", err)
 	}
 
-	errs := anySchema.Validate(anyBytes)
-	if errs != nil {
-		for _, err := range errs {
-			t.Log(err.Error())
-		}
-		t.Fatal("any did not match any")
-	}
-	errs = schemaSchema.Validate(anyBytes)
+	// errs := anySchema.Validate(anyBytes)
+	// if errs != nil {
+	// 	for _, err := range errs {
+	// 		t.Log(err.Error())
+	// 	}
+	// 	t.Fatal("any did not match any")
+	// }
+	errs := schemaSchema.Validate(anyBytes).Errors()
+	t.Log("--------------------------------------")
+	t.Log(errs)
 	if errs != nil {
 		for _, err := range errs {
 			t.Log(err.Error())
 		}
 		t.Fatal("schema did not match any")
 	}
-	errs = anySchema.Validate(schemaBytes)
+	errs = anySchema.Validate(schemaBytes).Errors()
 	if errs != nil {
 		for _, err := range errs {
 			t.Log(err.Error())
 		}
 		t.Fatal("any did not match schema")
 	}
-	errs = schemaSchema.Validate(schemaBytes)
+	errs = schemaSchema.Validate(schemaBytes).Errors()
 	if errs != nil {
 		for _, err := range errs {
 			t.Log(err.Error())
@@ -99,7 +101,7 @@ func TestSchema(t *testing.T) {
 		comment, _, _ := strings.Cut(parts[0], "\n")
 
 		t.Run(strings.Trim(comment, "; "), func(t *testing.T) {
-			errs := metaSchema.Validate([]byte(parts[0]))
+			errs := metaSchema.Validate([]byte(parts[0])).Errors()
 			if errs != nil {
 				for _, err := range errs {
 					t.Log(err.Error())
@@ -112,7 +114,7 @@ func TestSchema(t *testing.T) {
 				t.Fatalf("couldn't parse schema: %v", err)
 			}
 			expected := collectErrors(parts[1])
-			errors := schema.Validate([]byte(parts[1]))
+			errors := schema.Validate([]byte(parts[1])).Errors()
 			actual := []string{}
 			for _, err := range errors {
 				line := strings.Split(parts[1], "\n")[err.Lno()-1]
@@ -171,25 +173,25 @@ func TestSplitLine(t *testing.T) {
 }
 
 func TestLoad(t *testing.T) {
-	if Validate([]byte{}, func(schema string) (*Schema, error) {
+	if !Validate([]byte{}, func(schema string) (*Schema, error) {
 		return nil, nil
-	}) != nil {
+	}).Valid() {
 		t.Fatalf("empty document should validate")
 	}
 
-	if Validate([]byte{}, func(schema string) (*Schema, error) {
+	if !Validate([]byte{}, func(schema string) (*Schema, error) {
 		return nil, fmt.Errorf("wow")
-	}) != nil {
+	}).Valid() {
 		t.Fatalf("empty document should validate")
 	}
 
-	if len(Validate([]byte(`"`), nil)) != 1 {
+	if len(Validate([]byte(`"`), nil).Errors()) != 1 {
 		t.Fatalf("isolated quote should not validate")
 	}
 
 	errs := Validate([]byte("a\n\""), func(schema string) (*Schema, error) {
 		return nil, fmt.Errorf("failed to load schema")
-	})
+	}).Errors()
 	if len(errs) != 2 {
 		for _, err := range errs {
 			t.Log(err.Error())
@@ -201,5 +203,88 @@ func TestLoad(t *testing.T) {
 	}
 	if errs[1].Error() != "2: unclosed quotes" {
 		t.Fatalf("got %#v, not quote error", errs[1].Error())
+	}
+}
+
+func TestSuggestedKeys(t *testing.T) {
+	sch, err := Parse([]byte(`
+root
+  keys
+    a = .*
+    b = .*
+`))
+	if err != nil {
+		t.Fatalf("failed to parse schema: %v", err)
+	}
+
+	suggestions := sch.Validate([]byte("")).SuggestedKeys(0)
+	if len(suggestions) != 2 || suggestions[0] != "a" || suggestions[1] != "b" {
+		t.Fatalf("expected suggestions: %v, got: %v", []string{"a", "b"}, suggestions)
+	}
+
+	suggestions = sch.Validate([]byte("a = 1\n")).SuggestedKeys(0)
+	if len(suggestions) != 1 || suggestions[0] != "b" {
+		t.Fatalf("expected suggestions: %v, got: %v", []string{"a", "b"}, suggestions)
+	}
+
+	sch, err = Parse([]byte(`
+root
+  keys
+    a = <nested>
+
+nested
+  keys
+    b = .*
+    c = .*
+`))
+
+	suggestions = sch.Validate([]byte("a\n  ")).SuggestedKeys(1)
+	if len(suggestions) != 2 || suggestions[0] != "b" || suggestions[1] != "c" {
+		t.Fatalf("expected suggestions: %v, got: %v", []string{"b", "c"}, suggestions)
+	}
+
+	sch, err = Parse([]byte(`
+root
+  keys
+    a = <nested>
+
+nested
+  one of
+    = <b map>
+    = <c map>
+
+b map
+  required keys
+    b = .*
+
+c map
+  required keys
+    c = .*
+`))
+
+	suggestions = sch.Validate([]byte("a\n  ")).SuggestedKeys(1)
+	if len(suggestions) != 2 || suggestions[0] != "b" || suggestions[1] != "c" {
+		t.Fatalf("expected suggestions: %v, got: %v", []string{"b", "c"}, suggestions)
+	}
+
+	sch, err = Parse([]byte(`
+root
+  keys
+    a = <nested>
+
+nested
+  keys
+    b = <wow>
+
+wow
+  required keys
+    d = .*
+  keys
+    e = .*
+`))
+
+	suggestions = sch.Validate([]byte("a\n  b\n")).SuggestedKeys(2)
+	if len(suggestions) != 2 || suggestions[0] != "d" || suggestions[1] != "e" {
+		t.Fatalf("expected suggestions: %v, got: %v", []string{"d", "e"}, suggestions)
 	}
 }

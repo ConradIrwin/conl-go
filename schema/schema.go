@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/ConradIrwin/conl-go"
+	"github.com/ConradIrwin/dbg"
 )
 
 // A Schema allows you to validate a CONL document against a set of rules.
@@ -44,13 +45,103 @@ func Parse(input []byte) (*Schema, error) {
 // As there may be multiple possible ways for a schema to match,
 // the errors returned are an arbitrary subset of the possible problems.
 // The exact errors returned will change over time as heuristics improve.
-func (s *Schema) Validate(input []byte) []ValidationError {
+func (s *Schema) Validate(input []byte) *Result {
 	doc := parseDoc(input)
-	errs := s.schema["root"].validate(s, doc, &conl.Token{Lno: 1})
-	slices.SortFunc(errs, func(i, j ValidationError) int {
+	rootToken := &conl.Token{Lno: 1}
+	guesses, errors := s.schema["root"].validate(s, doc, rootToken)
+	slices.SortFunc(errors, func(i, j ValidationError) int {
 		return i.token.Lno - j.token.Lno
 	})
-	return errs
+	return &Result{
+		errors,
+		doc,
+		rootToken,
+		guesses,
+		s,
+	}
+}
+
+type Result struct {
+	errors    []ValidationError
+	doc       *conlValue
+	rootToken *conl.Token
+	guesses   map[*conl.Token]*matcher
+	schema    *Schema
+}
+
+func (r *Result) Valid() bool {
+	return len(r.errors) == 0
+}
+
+func (r *Result) Errors() []ValidationError {
+	return r.errors
+}
+
+// SuggestedKeys returns possible keys for the map defined on line `lno`
+// (or for the root of the document if lno == 0)
+// If `lno` defines a list, []string{"="}
+func (r *Result) SuggestedKeys(lno int) []string {
+	var possible []*matcher
+	var listAllowed bool
+	value := r.doc
+
+	if lno == 0 {
+		def := r.schema.schema["root"]
+		possible, listAllowed = def.suggestedKeys()
+	} else {
+	outer:
+		for {
+			entries := value.Map
+			if len(value.List) > 0 {
+				entries = value.List
+			}
+			dbg.Dbg("..")
+			for i, entry := range entries {
+				if entry.key.Lno == lno {
+					matcher := r.guesses[entry.key]
+					if matcher == nil {
+						dbg.Dbg(entry.key)
+						dbg.Dbg(r.guesses)
+					}
+					value = &entry.value
+					if matcher.Resolved != nil {
+						possible, listAllowed = matcher.Resolved.suggestedKeys()
+					}
+					break outer
+				} else if i == len(entries)-1 || entries[i+1].key.Lno > lno {
+					value = &entry.value
+					continue outer
+				}
+			}
+			break
+		}
+	}
+
+	for i, m := range possible {
+		for _, entry := range r.doc.Map {
+			_, keyErrors := m.validate(r.schema, &conlValue{Scalar: entry.key}, entry.key)
+			if len(keyErrors) == 0 {
+				possible[i] = nil
+				break
+			}
+		}
+	}
+	var results []string
+	for _, m := range possible {
+		if m == nil {
+			continue
+		}
+		results = append(results, m.String())
+	}
+	if listAllowed {
+		results = append(results, "=")
+	}
+	slices.Sort(results)
+	return results
+}
+
+func (r *Result) SuggestedScalars(lno int) []string {
+	return []string{}
 }
 
 var anySchema *Schema
@@ -84,7 +175,7 @@ map
 // or returns nil, then [Any] is used. If the load function returns an error it is returned
 // as a ValidationError on either the token providing the schema definition, or the first token
 // in the file, in addition to any errors that would be reported by conl.Parse.
-func Validate(input []byte, load func(schema string) (*Schema, error)) []ValidationError {
+func Validate(input []byte, load func(schema string) (*Schema, error)) *Result {
 	doc := parseDoc(input)
 	var schema *Schema
 	var err error
@@ -120,15 +211,22 @@ func Validate(input []byte, load func(schema string) (*Schema, error)) []Validat
 	if schema == nil {
 		schema = Any()
 	}
+	rootToken := &conl.Token{Lno: 1}
 
-	errs := schema.schema["root"].validate(schema, doc, &conl.Token{Lno: 1})
+	guesses, errors := schema.schema["root"].validate(schema, doc, rootToken)
 	if validationError != nil {
-		errs = append(errs, *validationError)
+		errors = append(errors, *validationError)
 	}
-	slices.SortFunc(errs, func(i, j ValidationError) int {
+	slices.SortFunc(errors, func(i, j ValidationError) int {
 		return i.token.Lno - j.token.Lno
 	})
-	return errs
+	return &Result{
+		errors,
+		doc,
+		rootToken,
+		guesses,
+		schema,
+	}
 }
 
 type definition struct {
@@ -207,14 +305,20 @@ func (d *definition) resolve(s *Schema, name string, seen []string) error {
 	return nil
 }
 
-func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (errors []ValidationError) {
+func withItem[K comparable, V any](m map[K]V, key K, item V) map[K]V {
+	if m == nil {
+		m = map[K]V{}
+	}
+	m[key] = item
+	return m
+}
+
+func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (map[*conl.Token]*matcher, []ValidationError) {
 	if val.Scalar != nil && val.Scalar.Error != nil {
-		errors = append(errors,
-			ValidationError{
-				token: val.Scalar,
-				err:   val.Scalar.Error,
-			})
-		return errors
+		return nil, []ValidationError{{
+			token: val.Scalar,
+			err:   val.Scalar.Error,
+		}}
 	}
 
 	if d.Scalar != nil {
@@ -223,46 +327,50 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 			if val.Scalar != nil {
 				token = val.Scalar
 			}
-			errors = append(errors,
-				ValidationError{
-					token:         token,
-					expectedMatch: []string{"any scalar"},
-				})
-			return errors
+			return nil, []ValidationError{{
+				token:         token,
+				expectedMatch: []string{"any scalar"},
+			}}
 		}
-		return d.Scalar.validate(s, val, pos)
+		guesses, errors := d.Scalar.validate(s, val, pos)
+		return withItem(guesses, pos, d.Scalar), errors
 	}
 
 	if d.OneOf != nil {
+		var bestGuesses map[*conl.Token]*matcher
+		var errors []ValidationError
 		for _, item := range d.OneOf {
-			nextErrors := item.validate(s, val, pos)
+			guesses, nextErrors := item.validate(s, val, pos)
 			if len(nextErrors) == 0 {
-				return nil
+				return withItem(guesses, pos, item), nil
 			}
 			if len(errors) == 0 || nextErrors[0].Lno() >= errors[0].Lno() {
+				bestGuesses = withItem(guesses, pos, item)
 				errors = mergeErrors(nextErrors, errors)
 			} else {
 				errors = mergeErrors(errors, nextErrors)
 			}
 		}
-		return errors
+		return bestGuesses, errors
 	}
 
 	if d.Keys != nil || d.RequiredKeys != nil {
 		seenRequired := make(map[*matcher]bool)
 		seenKeys := make(map[string]bool)
+
 		if val.Scalar != nil || val.List != nil {
 			token := pos
 			if val.Scalar != nil {
 				token = val.Scalar
 			}
-			errors = append(errors,
-				ValidationError{
-					token:         token,
-					expectedMatch: []string{"a map"},
-				})
-			return errors
+			return nil, []ValidationError{{
+				token:         token,
+				expectedMatch: []string{"a map"},
+			}}
 		}
+
+		var errors []ValidationError
+		guesses := map[*conl.Token]*matcher{}
 
 		for _, entry := range val.Map {
 			if entry.key.Error != nil {
@@ -284,7 +392,7 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 			oneOf := []*matcher{}
 
 			for keyMatcher, valueMatcher := range d.RequiredKeys {
-				keyErrors := keyMatcher.validate(s, &conlValue{Scalar: entry.key}, &conl.Token{Lno: entry.key.Lno})
+				_, keyErrors := keyMatcher.validate(s, &conlValue{Scalar: entry.key}, entry.key)
 				if len(keyErrors) == 0 {
 					if seenRequired[keyMatcher] {
 						errors = append(errors, ValidationError{
@@ -298,7 +406,7 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 				}
 			}
 			for keyMatcher, valueMatcher := range d.Keys {
-				keyErrors := keyMatcher.validate(s, &conlValue{Scalar: entry.key}, &conl.Token{Lno: entry.key.Lno})
+				_, keyErrors := keyMatcher.validate(s, &conlValue{Scalar: entry.key}, entry.key)
 				if len(keyErrors) == 0 {
 					oneOf = append(oneOf, valueMatcher)
 				}
@@ -310,18 +418,24 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 				})
 				continue
 			}
-			itemErrors := []ValidationError{}
+			var itemErrors []ValidationError
+			var bestGuesses map[*conl.Token]*matcher
 			for _, item := range oneOf {
-				nextErrors := item.validate(s, &entry.value, entry.key)
+				guesses, nextErrors := item.validate(s, &entry.value, entry.key)
 				if len(nextErrors) == 0 {
-					itemErrors = []ValidationError{}
+					bestGuesses = withItem(guesses, entry.key, item)
+					itemErrors = nil
 					break
 				}
 				if len(itemErrors) == 0 || nextErrors[0].Lno() >= itemErrors[0].Lno() {
+					bestGuesses = withItem(guesses, entry.key, item)
 					itemErrors = mergeErrors(nextErrors, itemErrors)
 				} else {
 					itemErrors = mergeErrors(itemErrors, nextErrors)
 				}
+			}
+			for k, v := range bestGuesses {
+				guesses[k] = v
 			}
 			errors = append(errors, itemErrors...)
 		}
@@ -334,7 +448,7 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 				})
 			}
 		}
-		return errors
+		return guesses, errors
 	}
 
 	if d.Items != nil || d.RequiredItems != nil {
@@ -343,13 +457,15 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 			if val.Scalar != nil {
 				token = val.Scalar
 			}
-			errors = append(errors,
-				ValidationError{
-					token:         token,
-					expectedMatch: []string{"a list"},
-				})
-			return errors
+			return nil, []ValidationError{{
+				token:         token,
+				expectedMatch: []string{"a list"},
+			}}
 		}
+
+		var errors []ValidationError
+		guesses := map[*conl.Token]*matcher{}
+
 		for i, valueMatcher := range d.RequiredItems {
 			if i < len(val.List) {
 				entry := &val.List[i]
@@ -361,7 +477,12 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 					})
 					continue
 				}
-				errors = append(errors, valueMatcher.validate(s, &entry.value, entry.key)...)
+				more, errs := valueMatcher.validate(s, &entry.value, entry.key)
+				guesses[entry.key] = valueMatcher
+				for k, v := range more {
+					guesses[k] = v
+				}
+				errors = append(errors, errs...)
 			}
 		}
 		if len(d.RequiredItems) > len(val.List) {
@@ -387,10 +508,15 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 				continue
 			}
 			if d.Items != nil {
-				errors = append(errors, d.Items.validate(s, &entry.value, entry.key)...)
+				more, errs := d.Items.validate(s, &entry.value, entry.key)
+				guesses[entry.key] = d.Items
+				for k, v := range more {
+					guesses[k] = v
+				}
+				errors = append(errors, errs...)
 			}
 		}
-		return errors
+		return guesses, errors
 	}
 
 	if val.List != nil || val.Map != nil || val.Scalar != nil {
@@ -398,13 +524,37 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (error
 		if token == nil {
 			token = pos
 		}
-		errors = append(errors,
-			ValidationError{
-				token:         token,
-				expectedMatch: []string{"no value"},
-			})
+		return nil, []ValidationError{{
+			token:         token,
+			expectedMatch: []string{"no value"},
+		}}
 	}
-	return errors
+
+	return nil, nil
+}
+
+func (d *definition) suggestedKeys() ([]*matcher, bool) {
+	var possible []*matcher
+	listAllowed := false
+	for m := range d.RequiredKeys {
+		possible = append(possible, m)
+	}
+	for m := range d.Keys {
+		possible = append(possible, m)
+	}
+	for _, oneOf := range d.OneOf {
+		if oneOf.Resolved != nil {
+			more, allowed := oneOf.Resolved.suggestedKeys()
+			possible = append(possible, more...)
+			if allowed {
+				listAllowed = true
+			}
+		}
+	}
+	if d.Items != nil || len(d.RequiredItems) > 0 {
+		listAllowed = true
+	}
+	return possible, listAllowed
 }
 
 type matcher struct {
@@ -430,9 +580,10 @@ func (m *matcher) resolve(s *Schema, seen []string) error {
 	return nil
 }
 
-func (m *matcher) validate(s *Schema, val *conlValue, pos *conl.Token) (errors []ValidationError) {
+func (m *matcher) validate(s *Schema, val *conlValue, pos *conl.Token) (guesses map[*conl.Token]*matcher, errors []ValidationError) {
 	if m.Resolved != nil {
-		return m.Resolved.validate(s, val, pos)
+		guesses, errors := m.Resolved.validate(s, val, pos)
+		return withItem(guesses, pos, m), errors
 	}
 	if val.Scalar == nil {
 		errors = append(errors,
@@ -440,7 +591,7 @@ func (m *matcher) validate(s *Schema, val *conlValue, pos *conl.Token) (errors [
 				token:         pos,
 				expectedMatch: []string{"any scalar"},
 			})
-		return errors
+		return nil, errors
 	}
 	if val.Scalar.Error != nil {
 		errors = append(errors,
@@ -448,16 +599,16 @@ func (m *matcher) validate(s *Schema, val *conlValue, pos *conl.Token) (errors [
 				token: val.Scalar,
 				err:   val.Scalar.Error,
 			})
-		return errors
+		return nil, errors
 	}
 	if !m.Pattern.MatchString(val.Scalar.Content) {
 		errors = append(errors, ValidationError{
 			token:         val.Scalar,
 			expectedMatch: []string{m.String()},
 		})
-		return errors
+		return withItem(nil, val.Scalar, m), errors
 	}
-	return nil
+	return withItem(nil, val.Scalar, m), nil
 }
 
 func (m *matcher) UnmarshalText(data []byte) error {
