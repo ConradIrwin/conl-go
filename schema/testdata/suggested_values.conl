@@ -1,0 +1,33 @@
+; simple
+root
+  keys
+    a = test
+---
+a = ; test
+===
+; one of
+root
+  keys
+    a = <test>
+test
+  one of
+    = ca
+    = cb
+    = cc
+---
+a = ; ca,cb,cc
+===
+; one of nested
+root
+  one of
+    = <a>
+    = <b>
+
+a
+  required keys
+    type = aa
+b
+  required keys
+    type = bb
+---
+type = ; aa,bb

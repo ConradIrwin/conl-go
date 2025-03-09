@@ -77,45 +77,39 @@ func (r *Result) Errors() []ValidationError {
 	return r.errors
 }
 
+func (r *Result) matcherForLine(lno int) *matcher {
+	value := r.doc
+outer:
+	for {
+		entries := value.Map
+		if len(value.List) > 0 {
+			entries = value.List
+		}
+		for i, entry := range entries {
+			if entry.key.Lno == lno {
+				return r.guesses[entry.key]
+			} else if i == len(entries)-1 || entries[i+1].key.Lno > lno {
+				value = &entry.value
+				continue outer
+			}
+		}
+		return nil
+	}
+}
+
 // SuggestedKeys returns possible keys for the map defined on line `lno`
 // (or for the root of the document if lno == 0)
 // If `lno` defines a list, []string{"="}
 func (r *Result) SuggestedKeys(lno int) []string {
-	var possible []*matcher
-	var listAllowed bool
-	value := r.doc
-
-	if lno == 0 {
-		def := r.schema.schema["root"]
-		possible, listAllowed = def.suggestedKeys()
-	} else {
-	outer:
-		for {
-			entries := value.Map
-			if len(value.List) > 0 {
-				entries = value.List
-			}
-			dbg.Dbg("..")
-			for i, entry := range entries {
-				if entry.key.Lno == lno {
-					matcher := r.guesses[entry.key]
-					if matcher == nil {
-						dbg.Dbg(entry.key)
-						dbg.Dbg(r.guesses)
-					}
-					value = &entry.value
-					if matcher.Resolved != nil {
-						possible, listAllowed = matcher.Resolved.suggestedKeys()
-					}
-					break outer
-				} else if i == len(entries)-1 || entries[i+1].key.Lno > lno {
-					value = &entry.value
-					continue outer
-				}
-			}
-			break
+	definition := r.schema.schema["root"]
+	if lno > 0 {
+		matcher := r.matcherForLine(lno)
+		if matcher == nil || matcher.Resolved == nil {
+			return nil
 		}
+		definition = matcher.Resolved
 	}
+	possible, listAllowed := definition.suggestedKeys()
 
 	for i, m := range possible {
 		for _, entry := range r.doc.Map {
@@ -140,8 +134,28 @@ func (r *Result) SuggestedKeys(lno int) []string {
 	return results
 }
 
-func (r *Result) SuggestedScalars(lno int) []string {
-	return []string{}
+// SuggestedValues returns possible values for the key on line `lno`
+// (or for the root of the document if lno == 0)
+// If the value may be a list or an object, "\n  " is included in the response.
+func (r *Result) SuggestedValues(lno int) []string {
+	dbg.Dbg(r.guesses[r.rootToken])
+	definition := r.schema.schema["root"]
+	if lno > 0 {
+		matcher := r.matcherForLine(lno)
+		if matcher == nil {
+			return nil
+		}
+		if matcher.Resolved == nil {
+			return []string{matcher.String()}
+		}
+
+		definition = matcher.Resolved
+	}
+	p, indentAllowed := definition.suggestedValues()
+	if indentAllowed {
+		p = append(p, "\n  ")
+	}
+	return p
 }
 
 var anySchema *Schema
@@ -557,6 +571,30 @@ func (d *definition) suggestedKeys() ([]*matcher, bool) {
 	return possible, listAllowed
 }
 
+func (d *definition) suggestedValues() ([]string, bool) {
+	var possible []string
+	indentAllowed := false
+	if len(d.RequiredKeys) > 0 || len(d.Keys) > 0 || len(d.RequiredItems) > 0 || d.Items != nil {
+		indentAllowed = true
+	}
+	if d.Scalar != nil {
+		p, i := d.Scalar.suggestedValues()
+		possible = append(possible, p...)
+		if i {
+			indentAllowed = true
+		}
+	}
+
+	for _, oneOf := range d.OneOf {
+		p, i := oneOf.suggestedValues()
+		possible = append(possible, p...)
+		if i {
+			indentAllowed = true
+		}
+	}
+	return possible, indentAllowed
+}
+
 type matcher struct {
 	Pattern   *regexp.Regexp
 	Reference string
@@ -609,6 +647,13 @@ func (m *matcher) validate(s *Schema, val *conlValue, pos *conl.Token) (guesses 
 		return withItem(nil, val.Scalar, m), errors
 	}
 	return withItem(nil, val.Scalar, m), nil
+}
+
+func (m *matcher) suggestedValues() ([]string, bool) {
+	if m.Resolved != nil {
+		return m.Resolved.suggestedValues()
+	}
+	return []string{m.String()}, false
 }
 
 func (m *matcher) UnmarshalText(data []byte) error {
