@@ -618,35 +618,29 @@ func (m *matcher) resolve(s *Schema, seen []string) error {
 	return nil
 }
 
-func (m *matcher) validate(s *Schema, val *conlValue, pos *conl.Token) (guesses map[*conl.Token]*matcher, errors []ValidationError) {
+func (m *matcher) validate(s *Schema, val *conlValue, pos *conl.Token) (map[*conl.Token]*matcher, []ValidationError) {
 	if m.Resolved != nil {
-		guesses, errors := m.Resolved.validate(s, val, pos)
-		return withItem(guesses, pos, m), errors
+		return m.Resolved.validate(s, val, pos)
 	}
 	if val.Scalar == nil {
-		errors = append(errors,
-			ValidationError{
-				token:         pos,
-				expectedMatch: []string{"any scalar"},
-			})
-		return nil, errors
+		return nil, []ValidationError{{
+			token:         pos,
+			expectedMatch: []string{"any scalar"},
+		}}
 	}
 	if val.Scalar.Error != nil {
-		errors = append(errors,
-			ValidationError{
-				token: val.Scalar,
-				err:   val.Scalar.Error,
-			})
-		return nil, errors
+		return nil, []ValidationError{{
+			token: val.Scalar,
+			err:   val.Scalar.Error,
+		}}
 	}
 	if !m.Pattern.MatchString(val.Scalar.Content) {
-		errors = append(errors, ValidationError{
+		return nil, []ValidationError{{
 			token:         val.Scalar,
 			expectedMatch: []string{m.String()},
-		})
-		return withItem(nil, val.Scalar, m), errors
+		}}
 	}
-	return withItem(nil, val.Scalar, m), nil
+	return nil, nil
 }
 
 func (m *matcher) suggestedValues() ([]string, bool) {
