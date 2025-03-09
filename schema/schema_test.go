@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ConradIrwin/conl-go"
+	"github.com/ConradIrwin/dbg"
 )
 
 func TestSchemaSelf(t *testing.T) {
@@ -108,6 +109,7 @@ func examples(t *testing.T, fileName string, run func(*testing.T, *Schema, []byt
 
 func TestSchema(t *testing.T) {
 	examples(t, "testdata/example_schemas.conl", func(t *testing.T, schema *Schema, input []byte) {
+		dbg.Dbg("!-------------------!")
 
 		expected := []string{}
 		for token := range conl.Tokens(input) {
@@ -152,8 +154,11 @@ func TestSuggestedValues(t *testing.T) {
 				if strings.HasPrefix(token.Content, ";") {
 					continue
 				}
-				actual := result.SuggestedValues(token.Lno)
+				actual, _ := result.SuggestedValues(token.Lno)
 				expected := strings.Split(strings.TrimSpace(token.Content), ",")
+				if strings.TrimSpace(token.Content) == "" {
+					expected = []string{}
+				}
 
 				if !slices.Equal(actual, expected) {
 					t.Fatalf("%v: expected %v, got %v", token.Lno, expected, actual)

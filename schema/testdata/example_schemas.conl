@@ -447,3 +447,20 @@ allowed list
 ---
 test 1
   root = b ; 9-10 expected a map
+test 2
+  root
+    keys = value ; 11-16 expected a map
+===
+; reduced schema
+root
+  one of
+    = <map>
+    = <list>
+map
+  required keys
+    keys = <map>
+list
+  required keys
+    items = <list>
+---
+keys = value ; 7-12 expected a map

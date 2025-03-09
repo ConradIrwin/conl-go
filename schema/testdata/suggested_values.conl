@@ -31,3 +31,19 @@ b
     type = bb
 ---
 type = ; aa,bb
+===
+; dot star
+root
+  keys
+    a = .*
+    b = a
+---
+a ;
+b ; a
+===
+; ceci une pipe
+root
+  keys
+    a = one|two|three
+---
+a ; one,three,two

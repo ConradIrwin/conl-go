@@ -133,7 +133,8 @@ func (r *Result) SuggestedKeys(lno int) []string {
 		if m == nil {
 			continue
 		}
-		results = append(results, m.String())
+		possible, _ := m.suggestedValues()
+		results = append(results, possible...)
 	}
 	if listAllowed {
 		results = append(results, "=")
@@ -145,7 +146,7 @@ func (r *Result) SuggestedKeys(lno int) []string {
 // SuggestedValues returns possible values for the key on line `lno`
 // (or for the root of the document if lno == 0)
 // If the value may be a list or an object, "\n  " is included in the response.
-func (r *Result) SuggestedValues(lno int) []string {
+func (r *Result) SuggestedValues(lno int) ([]string, bool) {
 	possible := []string{}
 	indentAllowed := false
 	if lno == 0 {
@@ -154,19 +155,13 @@ func (r *Result) SuggestedValues(lno int) []string {
 		indentAllowed = indentAllowed || i
 	} else {
 		for _, matcher := range r.matchersForLine(lno) {
-			if matcher.Resolved != nil {
-				p, i := matcher.Resolved.suggestedValues()
-				possible = append(possible, p...)
-				indentAllowed = indentAllowed || i
-			} else {
-				possible = append(possible, matcher.String())
-			}
+			p, i := matcher.suggestedValues()
+			possible = append(possible, p...)
+			indentAllowed = indentAllowed || i
 		}
 	}
-	if indentAllowed {
-		possible = append(possible, "\n  ")
-	}
-	return possible
+	slices.Sort(possible)
+	return possible, indentAllowed
 }
 
 var anySchema *Schema
@@ -369,15 +364,15 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (map[*
 			if len(nextErrors) == 0 {
 				return withItem(guesses, pos, []*matcher{item}), nil
 			}
-			if len(errors) == 0 || nextErrors[0].Lno() >= errors[0].Lno() {
+			if len(errors) > 0 && (nextErrors[0].Lno() < errors[0].Lno() || nextErrors[0].Lno() == errors[0].Lno() && len(nextErrors) > len(errors)) {
+				errors = mergeErrors(errors, nextErrors)
+			} else {
 				if len(errors) > 0 && nextErrors[0].Lno() == errors[0].Lno() {
 					bestGuesses = mergeGuesses(bestGuesses, guesses)
 				} else {
 					bestGuesses = withItem(guesses, pos, []*matcher{item})
 				}
 				errors = mergeErrors(nextErrors, errors)
-			} else {
-				errors = mergeErrors(errors, nextErrors)
 			}
 		}
 		return bestGuesses, errors
@@ -456,15 +451,16 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (map[*
 					itemErrors = nil
 					break
 				}
-				if len(itemErrors) == 0 || nextErrors[0].Lno() >= itemErrors[0].Lno() {
+
+				if len(itemErrors) > 0 && (nextErrors[0].Lno() < itemErrors[0].Lno() || nextErrors[0].Lno() == itemErrors[0].Lno() && len(nextErrors) > len(itemErrors)) {
+					itemErrors = mergeErrors(itemErrors, nextErrors)
+				} else {
 					if len(itemErrors) > 0 && nextErrors[0].Lno() == itemErrors[0].Lno() {
 						bestGuesses = mergeGuesses(bestGuesses, guesses)
 					} else {
 						bestGuesses = withItem(guesses, entry.key, []*matcher{item})
 					}
 					itemErrors = mergeErrors(nextErrors, itemErrors)
-				} else {
-					itemErrors = mergeErrors(itemErrors, nextErrors)
 				}
 			}
 			for k, v := range bestGuesses {
@@ -599,17 +595,13 @@ func (d *definition) suggestedValues() ([]string, bool) {
 	if d.Scalar != nil {
 		p, i := d.Scalar.suggestedValues()
 		possible = append(possible, p...)
-		if i {
-			indentAllowed = true
-		}
+		indentAllowed = indentAllowed || i
 	}
 
 	for _, oneOf := range d.OneOf {
 		p, i := oneOf.suggestedValues()
 		possible = append(possible, p...)
-		if i {
-			indentAllowed = true
-		}
+		indentAllowed = indentAllowed || i
 	}
 	return possible, indentAllowed
 }
@@ -666,7 +658,11 @@ func (m *matcher) suggestedValues() ([]string, bool) {
 	if m.Resolved != nil {
 		return m.Resolved.suggestedValues()
 	}
-	return []string{m.String()}, false
+	pat := m.String()
+	if strings.ContainsAny(pat, ".\\[](){}^$?*+") {
+		return nil, false
+	}
+	return strings.Split(pat, "|"), false
 }
 
 func (m *matcher) UnmarshalText(data []byte) error {
