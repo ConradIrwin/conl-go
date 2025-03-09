@@ -10,7 +10,6 @@ import (
 	"sync"
 
 	"github.com/ConradIrwin/conl-go"
-	"github.com/ConradIrwin/dbg"
 )
 
 // A Schema allows you to validate a CONL document against a set of rules.
@@ -65,7 +64,7 @@ type Result struct {
 	errors    []ValidationError
 	doc       *conlValue
 	rootToken *conl.Token
-	guesses   map[*conl.Token]*matcher
+	guesses   map[*conl.Token][]*matcher
 	schema    *Schema
 }
 
@@ -77,7 +76,7 @@ func (r *Result) Errors() []ValidationError {
 	return r.errors
 }
 
-func (r *Result) matcherForLine(lno int) *matcher {
+func (r *Result) matchersForLine(lno int) []*matcher {
 	value := r.doc
 outer:
 	for {
@@ -101,15 +100,24 @@ outer:
 // (or for the root of the document if lno == 0)
 // If `lno` defines a list, []string{"="}
 func (r *Result) SuggestedKeys(lno int) []string {
-	definition := r.schema.schema["root"]
-	if lno > 0 {
-		matcher := r.matcherForLine(lno)
-		if matcher == nil || matcher.Resolved == nil {
-			return nil
+	definitions := []*definition{}
+	if lno == 0 {
+		definitions = append(definitions, r.schema.schema["root"])
+	} else {
+		matchers := r.matchersForLine(lno)
+		for _, m := range matchers {
+			if m.Resolved != nil {
+				definitions = append(definitions, m.Resolved)
+			}
 		}
-		definition = matcher.Resolved
 	}
-	possible, listAllowed := definition.suggestedKeys()
+	possible := []*matcher{}
+	listAllowed := false
+	for _, definition := range definitions {
+		p, l := definition.suggestedKeys()
+		possible = append(possible, p...)
+		listAllowed = listAllowed || l
+	}
 
 	for i, m := range possible {
 		for _, entry := range r.doc.Map {
@@ -138,24 +146,27 @@ func (r *Result) SuggestedKeys(lno int) []string {
 // (or for the root of the document if lno == 0)
 // If the value may be a list or an object, "\n  " is included in the response.
 func (r *Result) SuggestedValues(lno int) []string {
-	dbg.Dbg(r.guesses[r.rootToken])
-	definition := r.schema.schema["root"]
-	if lno > 0 {
-		matcher := r.matcherForLine(lno)
-		if matcher == nil {
-			return nil
+	possible := []string{}
+	indentAllowed := false
+	if lno == 0 {
+		p, i := r.schema.schema["root"].suggestedValues()
+		possible = append(possible, p...)
+		indentAllowed = indentAllowed || i
+	} else {
+		for _, matcher := range r.matchersForLine(lno) {
+			if matcher.Resolved != nil {
+				p, i := matcher.Resolved.suggestedValues()
+				possible = append(possible, p...)
+				indentAllowed = indentAllowed || i
+			} else {
+				possible = append(possible, matcher.String())
+			}
 		}
-		if matcher.Resolved == nil {
-			return []string{matcher.String()}
-		}
-
-		definition = matcher.Resolved
 	}
-	p, indentAllowed := definition.suggestedValues()
 	if indentAllowed {
-		p = append(p, "\n  ")
+		possible = append(possible, "\n  ")
 	}
-	return p
+	return possible
 }
 
 var anySchema *Schema
@@ -327,7 +338,7 @@ func withItem[K comparable, V any](m map[K]V, key K, item V) map[K]V {
 	return m
 }
 
-func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (map[*conl.Token]*matcher, []ValidationError) {
+func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (map[*conl.Token][]*matcher, []ValidationError) {
 	if val.Scalar != nil && val.Scalar.Error != nil {
 		return nil, []ValidationError{{
 			token: val.Scalar,
@@ -347,19 +358,23 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (map[*
 			}}
 		}
 		guesses, errors := d.Scalar.validate(s, val, pos)
-		return withItem(guesses, pos, d.Scalar), errors
+		return withItem(guesses, pos, []*matcher{d.Scalar}), errors
 	}
 
 	if d.OneOf != nil {
-		var bestGuesses map[*conl.Token]*matcher
+		var bestGuesses map[*conl.Token][]*matcher
 		var errors []ValidationError
 		for _, item := range d.OneOf {
 			guesses, nextErrors := item.validate(s, val, pos)
 			if len(nextErrors) == 0 {
-				return withItem(guesses, pos, item), nil
+				return withItem(guesses, pos, []*matcher{item}), nil
 			}
 			if len(errors) == 0 || nextErrors[0].Lno() >= errors[0].Lno() {
-				bestGuesses = withItem(guesses, pos, item)
+				if len(errors) > 0 && nextErrors[0].Lno() == errors[0].Lno() {
+					bestGuesses = mergeGuesses(bestGuesses, guesses)
+				} else {
+					bestGuesses = withItem(guesses, pos, []*matcher{item})
+				}
 				errors = mergeErrors(nextErrors, errors)
 			} else {
 				errors = mergeErrors(errors, nextErrors)
@@ -384,7 +399,7 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (map[*
 		}
 
 		var errors []ValidationError
-		guesses := map[*conl.Token]*matcher{}
+		guesses := map[*conl.Token][]*matcher{}
 
 		for _, entry := range val.Map {
 			if entry.key.Error != nil {
@@ -433,16 +448,20 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (map[*
 				continue
 			}
 			var itemErrors []ValidationError
-			var bestGuesses map[*conl.Token]*matcher
+			var bestGuesses map[*conl.Token][]*matcher
 			for _, item := range oneOf {
 				guesses, nextErrors := item.validate(s, &entry.value, entry.key)
 				if len(nextErrors) == 0 {
-					bestGuesses = withItem(guesses, entry.key, item)
+					bestGuesses = withItem(guesses, entry.key, []*matcher{item})
 					itemErrors = nil
 					break
 				}
 				if len(itemErrors) == 0 || nextErrors[0].Lno() >= itemErrors[0].Lno() {
-					bestGuesses = withItem(guesses, entry.key, item)
+					if len(itemErrors) > 0 && nextErrors[0].Lno() == itemErrors[0].Lno() {
+						bestGuesses = mergeGuesses(bestGuesses, guesses)
+					} else {
+						bestGuesses = withItem(guesses, entry.key, []*matcher{item})
+					}
 					itemErrors = mergeErrors(nextErrors, itemErrors)
 				} else {
 					itemErrors = mergeErrors(itemErrors, nextErrors)
@@ -478,7 +497,7 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (map[*
 		}
 
 		var errors []ValidationError
-		guesses := map[*conl.Token]*matcher{}
+		guesses := map[*conl.Token][]*matcher{}
 
 		for i, valueMatcher := range d.RequiredItems {
 			if i < len(val.List) {
@@ -492,7 +511,7 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (map[*
 					continue
 				}
 				more, errs := valueMatcher.validate(s, &entry.value, entry.key)
-				guesses[entry.key] = valueMatcher
+				guesses[entry.key] = []*matcher{valueMatcher}
 				for k, v := range more {
 					guesses[k] = v
 				}
@@ -523,7 +542,7 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (map[*
 			}
 			if d.Items != nil {
 				more, errs := d.Items.validate(s, &entry.value, entry.key)
-				guesses[entry.key] = d.Items
+				guesses[entry.key] = []*matcher{d.Items}
 				for k, v := range more {
 					guesses[k] = v
 				}
@@ -618,7 +637,7 @@ func (m *matcher) resolve(s *Schema, seen []string) error {
 	return nil
 }
 
-func (m *matcher) validate(s *Schema, val *conlValue, pos *conl.Token) (map[*conl.Token]*matcher, []ValidationError) {
+func (m *matcher) validate(s *Schema, val *conlValue, pos *conl.Token) (map[*conl.Token][]*matcher, []ValidationError) {
 	if m.Resolved != nil {
 		return m.Resolved.validate(s, val, pos)
 	}
@@ -811,6 +830,13 @@ func (ve *ValidationError) Msg() string {
 // Error implements the error interface
 func (ve *ValidationError) Error() string {
 	return fmt.Sprintf("%d: %s", ve.Lno(), ve.Msg())
+}
+
+func mergeGuesses(a, b map[*conl.Token][]*matcher) map[*conl.Token][]*matcher {
+	for token, value := range b {
+		a[token] = append(a[token], value...)
+	}
+	return a
 }
 
 func mergeErrors(a, b []ValidationError) []ValidationError {
