@@ -99,19 +99,19 @@ outer:
 // SuggestedKeys returns possible keys for the map defined on line `lno`
 // (or for the root of the document if lno == 0)
 // If `lno` defines a list, []string{"="}
-func (r *Result) SuggestedKeys(lno int) []string {
+func (r *Result) SuggestedKeys(lno int) []*Suggestion {
 	definitions := []*definition{}
 	if lno == 0 {
 		definitions = append(definitions, r.schema.schema["root"])
 	} else {
 		matchers := r.matchersForLine(lno)
 		for _, m := range matchers {
-			if m.Resolved != nil {
-				definitions = append(definitions, m.Resolved)
+			if m.Matches.Resolved != nil {
+				definitions = append(definitions, m.Matches.Resolved)
 			}
 		}
 	}
-	possible := []*matcher{}
+	possible := []matcherPair{}
 	listAllowed := false
 	for _, definition := range definitions {
 		p, l := definition.suggestedKeys()
@@ -121,33 +121,38 @@ func (r *Result) SuggestedKeys(lno int) []string {
 
 	for i, m := range possible {
 		for _, entry := range r.doc.Map {
-			_, keyErrors := m.validate(r.schema, &conlValue{Scalar: entry.key}, entry.key)
+			_, keyErrors := m.key.validate(r.schema, &conlValue{Scalar: entry.key}, entry.key)
 			if len(keyErrors) == 0 {
-				possible[i] = nil
+				possible[i] = matcherPair{}
 				break
 			}
 		}
 	}
-	var results []string
+	results := []*Suggestion{}
 	for _, m := range possible {
-		if m == nil {
+		if m.key == nil {
 			continue
 		}
-		possible, _ := m.suggestedValues()
+		possible, _ := m.key.suggestedValues()
+		for _, p := range possible {
+			p.Docs = m.value.Docs
+		}
 		results = append(results, possible...)
 	}
 	if listAllowed {
-		results = append(results, "=")
+		results = append(results, &Suggestion{Value: "="})
 	}
-	slices.Sort(results)
+	slices.SortFunc(results, func(a *Suggestion, b *Suggestion) int {
+		return strings.Compare(a.Value, b.Value)
+	})
 	return results
 }
 
 // SuggestedValues returns possible values for the key on line `lno`
 // (or for the root of the document if lno == 0)
 // If the value may be a list or an object, "\n  " is included in the response.
-func (r *Result) SuggestedValues(lno int) ([]string, bool) {
-	possible := []string{}
+func (r *Result) SuggestedValues(lno int) ([]*Suggestion, bool) {
+	possible := []*Suggestion{}
 	indentAllowed := false
 	if lno == 0 {
 		p, i := r.schema.schema["root"].suggestedValues()
@@ -160,8 +165,15 @@ func (r *Result) SuggestedValues(lno int) ([]string, bool) {
 			indentAllowed = indentAllowed || i
 		}
 	}
-	slices.Sort(possible)
+	slices.SortFunc(possible, func(a *Suggestion, b *Suggestion) int {
+		return strings.Compare(a.Value, b.Value)
+	})
 	return possible, indentAllowed
+}
+
+type Suggestion struct {
+	Value string
+	Docs  string
 }
 
 var anySchema *Schema
@@ -421,7 +433,7 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (map[*
 					if seenRequired[keyMatcher] {
 						errors = append(errors, ValidationError{
 							token:        entry.key,
-							duplicateKey: fmt.Sprintf("%s", keyMatcher),
+							duplicateKey: keyMatcher.Matches.String(),
 						})
 					} else {
 						seenRequired[keyMatcher] = true
@@ -473,7 +485,7 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (map[*
 			if !seenRequired[keyMatcher] {
 				errors = append(errors, ValidationError{
 					token:       pos,
-					requiredKey: []string{keyMatcher.String()},
+					requiredKey: []string{keyMatcher.Matches.String()},
 				})
 			}
 		}
@@ -517,7 +529,7 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (map[*
 		if len(d.RequiredItems) > len(val.List) {
 			errors = append(errors, ValidationError{
 				token:        pos,
-				requiredItem: d.RequiredItems[len(val.List)].String(),
+				requiredItem: d.RequiredItems[len(val.List)].Matches.String(),
 			})
 		}
 		if d.Items == nil && len(val.List) > len(d.RequiredItems) {
@@ -562,18 +574,23 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (map[*
 	return nil, nil
 }
 
-func (d *definition) suggestedKeys() ([]*matcher, bool) {
-	var possible []*matcher
+type matcherPair struct {
+	key   *matcher
+	value *matcher
+}
+
+func (d *definition) suggestedKeys() ([]matcherPair, bool) {
+	possible := []matcherPair{}
 	listAllowed := false
-	for m := range d.RequiredKeys {
-		possible = append(possible, m)
+	for key, value := range d.RequiredKeys {
+		possible = append(possible, matcherPair{key, value})
 	}
-	for m := range d.Keys {
-		possible = append(possible, m)
+	for key, value := range d.Keys {
+		possible = append(possible, matcherPair{key, value})
 	}
 	for _, oneOf := range d.OneOf {
-		if oneOf.Resolved != nil {
-			more, allowed := oneOf.Resolved.suggestedKeys()
+		if oneOf.Matches.Resolved != nil {
+			more, allowed := oneOf.Matches.Resolved.suggestedKeys()
 			possible = append(possible, more...)
 			if allowed {
 				listAllowed = true
@@ -586,8 +603,8 @@ func (d *definition) suggestedKeys() ([]*matcher, bool) {
 	return possible, listAllowed
 }
 
-func (d *definition) suggestedValues() ([]string, bool) {
-	var possible []string
+func (d *definition) suggestedValues() ([]*Suggestion, bool) {
+	var possible []*Suggestion
 	indentAllowed := false
 	if len(d.RequiredKeys) > 0 || len(d.Keys) > 0 || len(d.RequiredItems) > 0 || d.Items != nil {
 		indentAllowed = true
@@ -606,32 +623,37 @@ func (d *definition) suggestedValues() ([]string, bool) {
 	return possible, indentAllowed
 }
 
-type matcher struct {
+type valueMatcher struct {
 	Pattern   *regexp.Regexp
 	Reference string
 	Resolved  *definition
 }
 
+type matcher struct {
+	Matches valueMatcher `conl:"matches"`
+	Docs    string       `conl:"docs"`
+}
+
 func (m *matcher) resolve(s *Schema, seen []string) error {
-	if m.Pattern != nil || m.Resolved != nil {
+	if m.Matches.Pattern != nil || m.Matches.Resolved != nil {
 		return nil
 	}
-	next, ok := s.schema[m.Reference]
+	next, ok := s.schema[m.Matches.Reference]
 	if !ok {
-		return fmt.Errorf("<%s> is not defined", m.Reference)
-	} else if slices.Contains(seen, m.Reference) {
-		return fmt.Errorf("<%s> is defined in terms of itself", m.Reference)
+		return fmt.Errorf("<%s> is not defined", m.Matches.Reference)
+	} else if slices.Contains(seen, m.Matches.Reference) {
+		return fmt.Errorf("<%s> is defined in terms of itself", m.Matches.Reference)
 	}
-	m.Resolved = next
-	if err := next.resolve(s, m.Reference, append(seen, m.Reference)); err != nil {
+	m.Matches.Resolved = next
+	if err := next.resolve(s, m.Matches.Reference, append(seen, m.Matches.Reference)); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (m *matcher) validate(s *Schema, val *conlValue, pos *conl.Token) (map[*conl.Token][]*matcher, []ValidationError) {
-	if m.Resolved != nil {
-		return m.Resolved.validate(s, val, pos)
+	if m.Matches.Resolved != nil {
+		return m.Matches.Resolved.validate(s, val, pos)
 	}
 	if val.Scalar == nil {
 		return nil, []ValidationError{{
@@ -645,56 +667,65 @@ func (m *matcher) validate(s *Schema, val *conlValue, pos *conl.Token) (map[*con
 			err:   val.Scalar.Error,
 		}}
 	}
-	if !m.Pattern.MatchString(val.Scalar.Content) {
+	if !m.Matches.Pattern.MatchString(val.Scalar.Content) {
 		return nil, []ValidationError{{
 			token:         val.Scalar,
-			expectedMatch: []string{m.String()},
+			expectedMatch: []string{m.Matches.String()},
 		}}
 	}
 	return nil, nil
 }
 
-func (m *matcher) suggestedValues() ([]string, bool) {
-	if m.Resolved != nil {
-		return m.Resolved.suggestedValues()
+func (m *matcher) suggestedValues() ([]*Suggestion, bool) {
+	if m.Matches.Resolved != nil {
+		return m.Matches.Resolved.suggestedValues()
 	}
-	pat := m.String()
+	pat := m.Matches.String()
 	if strings.ContainsAny(pat, ".\\[](){}^$?*+") {
 		return nil, false
 	}
-	return strings.Split(pat, "|"), false
+	values := strings.Split(pat, "|")
+	suggestions := make([]*Suggestion, len(values))
+	for i, v := range values {
+		suggestions[i] = &Suggestion{
+			Value: v,
+			Docs:  m.Docs,
+		}
+	}
+
+	return suggestions, false
 }
 
-func (m *matcher) UnmarshalText(data []byte) error {
+func (v *valueMatcher) UnmarshalText(data []byte) error {
 	if data[0] == '<' {
 		if data[len(data)-1] != '>' {
 			return fmt.Errorf("missing closing >")
 		}
-		m.Reference = string(data[1 : len(data)-1])
+		v.Reference = string(data[1 : len(data)-1])
 		return nil
 	}
 	pattern := &regexp.Regexp{}
 	if err := pattern.UnmarshalText([]byte("(?s)^" + string(data) + "$")); err != nil {
 		return err
 	}
-	m.Pattern = pattern
+	v.Pattern = pattern
 	return nil
 }
 
-func (m *matcher) String() string {
-	if m.Pattern != nil {
-		s := m.Pattern.String()
+func (m *matcher) UnmarshalText(data []byte) error {
+	return m.Matches.UnmarshalText(data)
+}
+
+func (v *valueMatcher) String() string {
+	if v.Pattern != nil {
+		s := v.Pattern.String()
 		s = s[5 : len(s)-1]
 		if s[0] == '<' {
 			s = "\\" + s
 		}
 		return s
 	}
-	return "<" + m.Reference + ">"
-}
-
-func (m *matcher) MarshalText() ([]byte, error) {
-	return []byte(m.String()), nil
+	return "<" + v.Reference + ">"
 }
 
 // A ValidationError represents a single validation error.

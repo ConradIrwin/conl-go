@@ -3,6 +3,7 @@ package schema
 import (
 	"fmt"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -109,8 +110,6 @@ func examples(t *testing.T, fileName string, run func(*testing.T, *Schema, []byt
 
 func TestSchema(t *testing.T) {
 	examples(t, "testdata/example_schemas.conl", func(t *testing.T, schema *Schema, input []byte) {
-		dbg.Dbg("!-------------------!")
-
 		expected := []string{}
 		for token := range conl.Tokens(input) {
 			if token.Kind == conl.Comment {
@@ -154,7 +153,12 @@ func TestSuggestedValues(t *testing.T) {
 				if strings.HasPrefix(token.Content, ";") {
 					continue
 				}
-				actual, _ := result.SuggestedValues(token.Lno)
+				suggestions, _ := result.SuggestedValues(token.Lno)
+				actual := make([]string, len(suggestions))
+				for i, suggestion := range suggestions {
+					actual[i] = suggestion.Value
+				}
+
 				expected := strings.Split(strings.TrimSpace(token.Content), ",")
 				if strings.TrimSpace(token.Content) == "" {
 					expected = []string{}
@@ -166,6 +170,32 @@ func TestSuggestedValues(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestSuggestedValuesDocs(t *testing.T) {
+	sch, err := Parse([]byte(`
+root
+  keys
+    a = <test>
+
+test
+  one of
+    =
+      matches = a
+      docs = Hello!
+`))
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	suggestions, _ := sch.Validate([]byte("a = ")).SuggestedValues(1)
+	expected := []*Suggestion{
+		{Value: "a", Docs: "Hello!"},
+	}
+	if !reflect.DeepEqual(suggestions, expected) {
+		dbg.Dbg(expected, suggestions)
+		t.Fatalf("expected suggestions: %#v, got: %#v", expected, suggestions)
+	}
 }
 
 func TestSplitLine(t *testing.T) {
@@ -244,18 +274,18 @@ root
   keys
     a = .*
     b = .*
-`))
+	`))
 	if err != nil {
 		t.Fatalf("failed to parse schema: %v", err)
 	}
 
 	suggestions := sch.Validate([]byte("")).SuggestedKeys(0)
-	if len(suggestions) != 2 || suggestions[0] != "a" || suggestions[1] != "b" {
+	if len(suggestions) != 2 || suggestions[0].Value != "a" || suggestions[1].Value != "b" {
 		t.Fatalf("expected suggestions: %v, got: %v", []string{"a", "b"}, suggestions)
 	}
 
 	suggestions = sch.Validate([]byte("a = 1\n")).SuggestedKeys(0)
-	if len(suggestions) != 1 || suggestions[0] != "b" {
+	if len(suggestions) != 1 || suggestions[0].Value != "b" {
 		t.Fatalf("expected suggestions: %v, got: %v", []string{"a", "b"}, suggestions)
 	}
 
@@ -268,10 +298,10 @@ nested
   keys
     b = .*
     c = .*
-`))
+	`))
 
 	suggestions = sch.Validate([]byte("a\n  ")).SuggestedKeys(1)
-	if len(suggestions) != 2 || suggestions[0] != "b" || suggestions[1] != "c" {
+	if len(suggestions) != 2 || suggestions[0].Value != "b" || suggestions[1].Value != "c" {
 		t.Fatalf("expected suggestions: %v, got: %v", []string{"b", "c"}, suggestions)
 	}
 
@@ -292,10 +322,10 @@ b map
 c map
   required keys
     c = .*
-`))
+	`))
 
 	suggestions = sch.Validate([]byte("a\n  ")).SuggestedKeys(1)
-	if len(suggestions) != 2 || suggestions[0] != "b" || suggestions[1] != "c" {
+	if len(suggestions) != 2 || suggestions[0].Value != "b" || suggestions[1].Value != "c" {
 		t.Fatalf("expected suggestions: %v, got: %v", []string{"b", "c"}, suggestions)
 	}
 
@@ -313,10 +343,29 @@ wow
     d = .*
   keys
     e = .*
-`))
+	`))
 
 	suggestions = sch.Validate([]byte("a\n  b\n")).SuggestedKeys(2)
-	if len(suggestions) != 2 || suggestions[0] != "d" || suggestions[1] != "e" {
+	if len(suggestions) != 2 || suggestions[0].Value != "d" || suggestions[1].Value != "e" {
 		t.Fatalf("expected suggestions: %v, got: %v", []string{"d", "e"}, suggestions)
+	}
+
+	sch, err = Parse([]byte(`
+root
+  keys
+    a
+      matches = hello
+      docs = Hello!
+`))
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	suggestions = sch.Validate([]byte("")).SuggestedKeys(0)
+	expected := []*Suggestion{
+		{Value: "a", Docs: "Hello!"},
+	}
+	if !reflect.DeepEqual(suggestions, expected) {
+		t.Fatalf("expected suggestions: %#v, got: %#v", expected, suggestions)
 	}
 }

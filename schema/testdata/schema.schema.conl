@@ -2,7 +2,7 @@
 ;
 ; It consists of a map of named definitions, each built up of matchers.
 ;
-matcher
+value matcher
   one of
     ; If a matcher starts with < it is a reference to a definition
     ; elsewhere in the schema. Values match this matcher if they match
@@ -11,6 +11,17 @@ matcher
     ; Otherwise, it is a regular expression. Values match this matcher
     ; if they are scalars that match the regular expression.
     = [^<].*
+
+documented matcher
+  required keys
+    matches = <value matcher>
+  keys
+    docs = .*
+
+matcher
+  one of
+    = <value matcher>
+    = <documented matcher>
 
 ; There are four kinds of definition.
 definition
@@ -25,7 +36,12 @@ definition
 ; or a reference to a scalar definition (or a one-of that contains scalar definitions).
 scalar
   required keys
-    scalar = <matcher>
+    scalar
+      matches = <matcher>
+      docs = """
+         Matches only scalars. The content of the scalar
+         must match the given matcher.
+
 
 ; A "one of" definition represents an OR of possible definitions.
 ; This is the primary mechanism in CONL schema to allow a value to have
@@ -33,7 +49,9 @@ scalar
 ; union.
 one of
   required keys
-    one of = <matcher list>
+    one of
+     matches = <matcher list>
+     docs = The value in the document must match one of the given matchers.
 
 matcher list
   items = <matcher>

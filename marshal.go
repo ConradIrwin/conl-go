@@ -292,13 +292,12 @@ func unmarshalValue(nextToken func() Token, v reflect.Value) error {
 
 	if tu, ok := v.Addr().Interface().(encoding.TextUnmarshaler); ok {
 		token := nextToken()
-		if token.Kind != Scalar && token.Kind != MultilineScalar {
-			return fmt.Errorf("%d: expected value", token.Lno)
+		if token.Kind == Scalar || token.Kind == MultilineScalar {
+			if err := tu.UnmarshalText([]byte(token.Content)); err != nil {
+				return fmt.Errorf("%d: %w", token.Lno, err)
+			}
+			return nil
 		}
-		if err := tu.UnmarshalText([]byte(token.Content)); err != nil {
-			return fmt.Errorf("%d: %w", token.Lno, err)
-		}
-		return nil
 	}
 
 	switch v.Kind() {
