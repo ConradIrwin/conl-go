@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ConradIrwin/conl-go"
+	"github.com/ConradIrwin/dbg"
 )
 
 func TestMarshal(t *testing.T) {
@@ -98,7 +99,25 @@ func TestMarshal(t *testing.T) {
 
 }
 
+type schema struct {
+	Definitions map[string]*definition `conl:"definitions"`
+}
+
+type definition struct {
+	RequiredKeys map[string]*matcher `conl:"required keys"`
+}
+
+type matcher struct {
+	String string
+}
+
+func (m *matcher) UnmarshalText(data []byte) error {
+	m.String = string(data)
+	return nil
+}
+
 func TestUnmarshal(t *testing.T) {
+
 	tests := []struct {
 		name     string
 		input    string
@@ -262,6 +281,24 @@ users
 				},
 			},
 		},
+		{
+			name: "conl schema example",
+			input: `
+definitions
+  one of
+    required keys
+      one of
+
+  list
+			`,
+			target: &schema{},
+			expected: schema{Definitions: map[string]*definition{
+				"list": nil,
+				"one of": {RequiredKeys: map[string]*matcher{
+					"one of": nil,
+				}}},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -283,6 +320,7 @@ users
 			// For structs and maps, compare the actual value to the expected
 			actual := reflect.ValueOf(tt.target).Elem().Interface()
 			if !reflect.DeepEqual(actual, tt.expected) {
+				dbg.Dbg(actual, tt.expected)
 				t.Errorf("got %+v, want %+v", actual, tt.expected)
 			}
 		})
