@@ -1,466 +1,522 @@
-; basic
-root
-  keys
-    username = \w+
----
-username = * ; 11-12 expected \w+
+basic
+  = """conl
+    root = <root>
+    definitions
+      root
+        keys
+          username = \w+
+  = """conl
+    username = * ; 11-12 expected \w+
 
-===
-; two errors
-root
-  keys
-    username = \w+
----
-username = * ; 11-12 expected \w+
-password = example ; 0-8 unexpected key password
+two errors
+  = """conl
+    root = <root>
+    definitions
+      root
+        keys
+          username = \w+
+  = """conl
+    username = * ; 11-12 expected \w+
+    password = example ; 0-8 unexpected key password
 
-===
-; empty
-root
-  keys
-    username = \w+
----
+empty
+  = """conl
+    root = <root>
+    definitions
+      root
+        keys
+          username = \w+
+  = ""
 
-===
-; missing required key
-root
-  required keys
-    username = \w+
----
-password = example ; 0-8 unexpected key password; 0-18 missing required key username
-===
-; multiple allowed keys ok
-root
-  keys
-    username = \w+
-    code .* = [0-9]+
----
-code home = 1234
-===
-; multiple allowed keys with error
+missing required key
+  = """conl
+    root = <root>
+    definitions
+      root
+        required keys
+          username = \w+
+  = """conl
+    password = example ; 0-8 unexpected key password; 0-18 missing required key username
 
-root
-  keys
-    username = \w+
-    code .* = [0-9]+
----
-code home = 123r ; 12-16 expected [0-9]+
-===
-; empty
-test
-  keys
-root
-  keys
-    test = <test>
----
-test
+multiple allowed keys ok
+  = """conl
+    root = <root>
+    definitions
+      root
+        keys
+          username = \w+
+          code .* = [0-9]+
+  = """conl
+    code home = 1234
 
-===
-; empty failure
-test
-  keys
-root
-  keys
-    test .* = <test>
----
-test 1 = a ; 9-10 expected no value
-test 2 ; 0-6 expected no value
-  = a
+multiple allowed keys with error
+  = """conl
+    root = <root>
+    definitions
+      root
+        keys
+          username = \w+
+          code .* = [0-9]+
+  = """conl
+    code home = 123r ; 12-16 expected [0-9]+
+empty subkey
+  = """conl
+    root = <root>
+    definitions
+      test
+        keys
+      root
+        keys
+          test = <test>
+  = """conl
+    test
 
-===
-; empty doc
-root
-  keys
-    test = test
----
+empty failure
+  = """conl
+    root = <root>
+    definitions
+      test
+        keys
+      root
+        keys
+          test .* = <test>
+  = """conl
+    test 1 = a ; 9-10 expected no value
+    test 2 ; 0-6 expected no value
+      = a
 
-===
-; referenced map
+empty doc
+  = """conl
+    root = <root>
+    definitions
+      root
+        keys
+          test = test
+  = ""
 
-test
-  keys
-    username = \w+
-    code .* = [0-9]+
-root
-  keys
-    test = <test>
----
-test
-  code home = 123r ; 14-18 expected [0-9]+
+referenced map
+  = """conl
+    root = <root>
+    definitions
+      test
+        keys
+          username = \w+
+          code .* = [0-9]+
+      root
+        keys
+          test = <test>
+  = """conl
+    test
+      code home = 123r ; 14-18 expected [0-9]+
 
-===
-; one of scalars
-test
-  one of
-    = a
-    = b
-    = c
-root
-  keys
-    test .* = <test>
----
-test a = a
-test b = b
-test d = d ; 9-10 expected a, b or c
+one of scalars
+  = """conl
+    root = <root>
+    definitions
+      test
+        one of
+          = a
+          = b
+          = c
+      root
+        keys
+          test .* = <test>
+  = """conl
+    test a = a
+    test b = b
+    test d = d ; 9-10 expected a, b or c
 
-===
-; one of required keys
-a
-  required keys
-    type = a
-b
-  required keys
-    type = b
-test
-  one of
-    = <a>
-    = <b>
-root
-  keys
-    test .* = <test>
----
-test a
-  type = a
-test b
-  type = b
-test c
-  type = c ; 9-10 expected a or b
+one of required keys
+  = """conl
+    root = <root>
+    definitions
+      a
+        required keys
+          type = a
+      b
+        required keys
+          type = b
+      test
+        one of
+          = <a>
+          = <b>
+      root
+        keys
+          test .* = <test>
+  = """conl
+    test a
+      type = a
+    test b
+      type = b
+    test c
+      type = c ; 9-10 expected a or b
 
-===
-; one of required keys more
-a
-  required keys
-    a = true
-b
-  required keys
-    b = true
-test
-  one of
-    = <a>
-    = <b>
-root
-  keys
-    test .* = <test>
----
-test a
-  a = true
-test b
-  b = true
-test c ; 0-6 missing required key a or b
-  c = true ; 2-3 unexpected key c
+one of required keys more
+  = """conl
+    root = <root>
+    definitions
+      a
+        required keys
+          a = true
+      b
+        required keys
+          b = true
+      test
+        one of
+          = <a>
+          = <b>
+      root
+        keys
+          test .* = <test>
+  = """conl
+    test a
+      a = true
+    test b
+      b = true
+    test c ; 0-6 missing required key a or b
+      c = true ; 2-3 unexpected key c
 
+incompatibility error
+  = """conl
+    root = <root>
+    definitions
+      a
+        keys
+          a = true
+      b
+        keys
+          b = true
+      test
+        one of
+          = <a>
+          = <b>
+      root
+        keys
+          test .* = <test>
+  = """conl
+    test a
+      a = true
+    test b
+      b = true
+    test c
+      c = true ; 2-3 unexpected key c
 
-===
-; incompatibility error
-a
-  keys
-    a = true
-b
-  keys
-    b = true
-test
-  one of
-    = <a>
-    = <b>
-root
-  keys
-    test .* = <test>
----
-test a
-  a = true
-test b
-  b = true
-test c
-  c = true ; 2-3 unexpected key c
+confusing incompatibility error
+  = """conl
+    root = <root>
+    definitions
+      a
+        keys
+          a = true
+          c = false
+      b
+        keys
+          b = true
+          c = true
+      test
+        one of
+          = <a>
+          = <b>
+      root
+        keys
+          test .* = <test>
+  = """conl
+    test 1
+      a = true
+      c = true ; 6-10 expected false
+    test 2
+      a = true
+      c = false
+    test 3
+      b = true
+      c = false ; 6-11 expected true
 
-===
-; confusing incompatibility error
-a
-  keys
-    a = true
-    c = false
-b
-  keys
-    b = true
-    c = true
-test
-  one of
-    = <a>
-    = <b>
-root
-  keys
-    test .* = <test>
----
-test 1
-  a = true
-  c = true ; 6-10 expected false
-test 2
-  a = true
-  c = false
-test 3
-  b = true
-  c = false ; 6-11 expected true
+simple lists
+  = """conl
+    root = <root>
+    definitions
+      test
+        items = <bool>
 
-===
-; simple lists
-test
-  items = <bool>
+      bool
+        one of
+          = true
+          = false
 
-bool
-  one of
-    = true
-    = false
+      root
+        keys
+          test .* = <test>
+  = """conl
+    test 1
+      = true
+      = false
+    test 2
+      =foo ; 3-6 expected false or true
+    test 3
 
-root
-  keys
-    test .* = <test>
----
-test 1
- = true
- = false
-test 2
- = foo ; 3-6 expected false or true
-test 3
+required lists
+  = """conl
+    root = <root>
+    definitions
+      test
+        required items
+          = 1
 
-===
-; required lists
-test
-  required items
-    = 1
+      root
+        keys
+          test .* = <test>
+  = """conl
+    test 1
+      = 1
+    test 2
+      = 1
+      = 2 ; 2-3 unexpected list item
+    test 3 ; 0-6 missing required list item 1
 
-root
-  keys
-    test .* = <test>
----
-test 1
- = 1
-test 2
- = 1
- = 2 ; 1-2 unexpected list item
-test 3 ; 0-6 missing required list item 1
+mixed lists
+  = """conl
+    root = <root>
+    definitions
+      test
+        required items
+          = 1
+        items = 2
 
-===
-; mixed lists
-test
-  required items
-    = 1
-  items = 2
+      root
+        keys
+          test .* = <test>
+  = """conl
+    test 1
+      = 1
+    test 2
+      = 1
+      = 2
+    test 3 ; 0-6 missing required list item 1
+    test 4
+      = 2 ; 4-5 expected 1
+    test 5
+      = 1
+      = 3 ; 4-5 expected 2
 
-root
-  keys
-    test .* = <test>
----
-test 1
- = 1
-test 2
- = 1
- = 2
-test 3 ; 0-6 missing required list item 1
-test 4
- = 2 ; 3-4 expected 1
-test 5
- = 1
- = 3 ; 3-4 expected 2
+mixed types
+  = """conl
+    root = <root>
+    definitions
+      test
+        one of
+          = true
+          = <data>
+      data
+        required keys
+          timeout = \d+ *(s|ms)
 
-===
-; mixed types
-test
-  one of
-    = true
-    = <data>
-data
-  required keys
-    timeout = \d+ *(s|ms)
+      root
+        keys
+          test .* = <test>
+  = """conl
+    test 1 = false ; 9-14 expected a map or true
 
-root
-  keys
-    test .* = <test>
----
-test 1 = false ; 9-14 expected a map or true
+mixed types list
+  = """conl
+    root = <root>
+    definitions
+      test
+        one of
+          = <map>
+          = <list>
+      map
+        required keys
+          timeout = \d+ *(s|ms)
+      list
+        required items
+          = \d+ *(s|ms)
 
-===
-; mixed types list
-test
-  one of
-    = <map>
-    = <list>
-map
-  required keys
-    timeout = \d+ *(s|ms)
-list
-  required items
-    = \d+ *(s|ms)
-
-root
-  keys
-    test .* = <test>
----
-test 1 = false ; 9-14 expected a list or a map
-test 2
-  = 5s
-test 3 ; 0-6 missing required key timeout
-  duration = 5s
-test 4
-  timeout = 10ms
-===
-; scalar
-test
-  scalar = [a-z]+
-root
-  keys
-    test .* = <test>
----
-test 1 = abc
-test 2 = 123 ; 9-12 expected [a-z]+
-test 4 = abc
-  test 4 ; 2-8 unexpected indent
-test 3 ; 0-6 expected any scalar
-test 6 = asd
-===
-; errors
-test
-  items = .*
-root
-  keys
-    test .* = <test>
----
-test 1
-  = 1
-  = """ ; 4-7 missing multiline value
-  a = b ; 2-3 unexpected map key
-===
-; duplicate required keys
-test
-  required keys
-    a|b = .*
-    c|d = .*
-root
-  keys
-    test .* = <test>
----
-test 1 ; 0-6 missing required key c|d
-  a = 1
-  b = 2 ; 2-3 duplicate key a|b
-test 2
-  a = 1
-  c = 2
-  d = 3 ; 2-3 duplicate key c|d
-===
-; duplicate allowed keys
-test
-  keys
-    a|b = .*
-root
-  keys
-    test .* = <test>
----
-test 1
-  a = 1
-  b = 2
-test 2
-  a = 1
-  a = 2 ; 2-3 duplicate key a
-test 3
-  c = 1 ; 2-3 unexpected key c
-  c = 2 ; 2-3 duplicate key c
-===
-; any schema
-root
-  one of
-    = <map>
-    = <list>
-    = <scalar>
-
+      root
+        keys
+          test .* = <test>
+  = """conl
+    test 1 = false ; 9-14 expected a list or a map
+    test 2
+      = 5s
+    test 3 ; 0-6 missing required key timeout
+      duration = 5s
+    test 4
+      timeout = 10ms
 scalar
-  scalar = .*
+  = """conl
+    root = <root>
+    definitions
+      test
+        scalar = [a-z]+
+      root
+        keys
+          test .* = <test>
+  = """conl
+    test 1 = abc
+    test 2 = 123 ; 9-12 expected [a-z]+
+    test 4 = abc
+      test 4 ; 2-8 unexpected indent
+    test 3 ; 0-6 expected any scalar
+    test 6 = asd
+errors
+  = """conl
+    root = <root>
+    definitions
+      test
+        items = .*
+      root
+        keys
+          test .* = <test>
+  = """conl
+    test 1
+      = 1
+      = """ ; 4-7 missing multiline value
+      a = b ; 2-3 unexpected map key
+duplicate required keys
+  = """conl
+    root = <root>
+    definitions
+      test
+        required keys
+          a|b = .*
+          c|d = .*
+      root
+        keys
+          test .* = <test>
 
-list
-  items = <root>
+  = """conl
+    test 1 ; 0-6 missing required key c|d
+      a = 1
+      b = 2 ; 2-3 duplicate key a|b
+    test 2
+      a = 1
+      c = 2
+      d = 3 ; 2-3 duplicate key c|d
+duplicate allowed keys
+  = """conl
+    root = <root>
+    definitions
+      test
+        keys
+          a|b = .*
+      root
+        keys
+          test .* = <test>
+  = """conl
+    test 1
+      a = 1
+      b = 2
+    test 2
+      a = 1
+      a = 2 ; 2-3 duplicate key a
+    test 3
+      c = 1 ; 2-3 unexpected key c
+      c = 2 ; 2-3 duplicate key c
+any schema
+  = """conl
+    root = <root>
+    definitions
+      root
+        one of
+          = <map>
+          = <list>
+          = <scalar>
 
-map
-  keys
-    <scalar> = <root>
----
-map
-  keys
+      scalar
+        scalar = .*
 
-  keys ; 2-6 duplicate key keys
+      list
+        items = <root>
 
-  "hello" = """bash
-    #!/bin/bash
-    echo "hello world"
+      map
+        keys
+          <scalar> = <root>
+  = """conl
+    map
+      keys
 
-===
-root
-  keys
-    .* = <schema>
+      keys ; 2-6 duplicate key keys
+
+      "hello" = """bash
+        #!/bin/bash
+        echo "hello world"
+
 schema
-  required keys
-    root = <definition>
-  keys
-    .* = <definition>
-    schema = .*
-definition
-  one of
-    = <scalar>
-    = <map>
-    = <list>
-    = <one of>
-matcher
-  scalar = .*
-scalar
-  required keys
-    scalar = <matcher>
-one of
-  required keys
-    one of = <matcher list>
+  = """conl
+    root = <root>
+    definitions
+      root
+        keys
+          .* = <schema>
+      schema
+        required keys
+          root = <definition>
+        keys
+          .* = <definition>
+          schema = .*
+      definition
+        one of
+          = <scalar>
+          = <map>
+          = <list>
+          = <one of>
+      matcher
+        scalar = .*
+      scalar
+        required keys
+          scalar = <matcher>
+      one of
+        required keys
+          one of = <matcher list>
 
-matcher list
-  items = <matcher>
-map
-  one of
-    = <required map>
-    = <allowed map>
-required map
-  required keys
-    required keys = <map keys>
-  keys
-    keys = <map keys>
-allowed map
-  required keys
-    keys = <map keys>
-map keys
-  keys
-    <matcher> = <matcher>
-list
-  one of
-    = <required list>
-    = <allowed list>
-required list
-  required keys
-    required items = <matcher list>
-  keys
-    items = <matcher>
-allowed list
-  required keys
-    items = <matcher>
----
-test 1
-  root = b ; 9-10 expected a map
-test 2
-  root
-    keys = value ; 11-16 expected a map
-===
-; reduced schema
-root
-  one of
-    = <map>
-    = <list>
-map
-  required keys
-    keys = <map>
-list
-  required keys
-    items = <list>
----
-keys = value ; 7-12 expected a map
+      matcher list
+        items = <matcher>
+      map
+        one of
+          = <required map>
+          = <allowed map>
+      required map
+        required keys
+          required keys = <map keys>
+        keys
+          keys = <map keys>
+      allowed map
+        required keys
+          keys = <map keys>
+      map keys
+        keys
+          <matcher> = <matcher>
+      list
+        one of
+          = <required list>
+          = <allowed list>
+      required list
+        required keys
+          required items = <matcher list>
+        keys
+          items = <matcher>
+      allowed list
+        required keys
+          items = <matcher>
+  = """conl
+    test 1
+      root = b ; 9-10 expected a map
+    test 2
+      root
+        keys = value ; 11-16 expected a map
+reduced schema
+  = """conl
+    root = <root>
+    definitions
+      root
+        one of
+          = <map>
+          = <list>
+      map
+        required keys
+          keys = <map>
+      list
+        required keys
+          items = <list>
+  = """conl
+    keys = value ; 7-12 expected a map

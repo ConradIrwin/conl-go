@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/ConradIrwin/conl-go"
-	"github.com/ConradIrwin/dbg"
 )
 
 func TestSchemaSelf(t *testing.T) {
@@ -64,32 +63,32 @@ func TestSchemaSelf(t *testing.T) {
 	}
 }
 
+var metaSchema *Schema
+
 func examples(t *testing.T, fileName string, run func(*testing.T, *Schema, []byte)) {
 	t.Helper()
 
-	input, err := os.ReadFile("testdata/schema.schema.conl")
+	examples := map[string][]string{}
+	input, err := os.ReadFile(fileName)
 	if err != nil {
-		t.Fatalf("Failed to read schema.conl: %v", err)
+		t.Fatalf("Failed to read %s: %v", fileName, err)
 	}
-	metaSchema, err := Parse(input)
-	if err != nil {
-		t.Fatalf("couldn't parse schema: %v", err)
-	}
-
-	examples, err := os.ReadFile(fileName)
-	if err != nil {
-		t.Fatalf("Failed to read examples file: %v", err)
+	if err := conl.Unmarshal(input, &examples); err != nil {
+		t.Fatalf("Failed to parse %s: %v", fileName, err)
 	}
 
-	examplesStr := strings.ReplaceAll(string(examples), "␉", "\t")
-	examplesStr = strings.ReplaceAll(examplesStr, "␊", "\r")
+	schemaInput, err := os.ReadFile("testdata/schema.schema.conl")
+	if err != nil {
+		t.Fatalf("Failed to read schema.schema.conl: %v", err)
+	}
+	metaSchema, err := Parse(schemaInput)
+	if err != nil {
+		t.Fatalf("couldn't parse schema.schema.conl: %v", err)
+	}
 
-	for _, example := range strings.Split(examplesStr, "\n===\n") {
-		parts := strings.SplitN(example, "\n---\n", 2)
-		comment, _, _ := strings.Cut(parts[0], "\n")
-
-		t.Run(strings.Trim(comment, "; "), func(t *testing.T) {
-			errs := metaSchema.Validate([]byte(parts[0])).Errors()
+	for name, example := range examples {
+		t.Run(name, func(t *testing.T) {
+			errs := metaSchema.Validate([]byte(example[0])).Errors()
 			if errs != nil {
 				for _, err := range errs {
 					t.Log(err.Error())
@@ -97,12 +96,12 @@ func examples(t *testing.T, fileName string, run func(*testing.T, *Schema, []byt
 				t.Fatal("schema validation failed")
 			}
 
-			schema, err := Parse([]byte(parts[0]))
+			schema, err := Parse([]byte(example[0]))
 			if err != nil {
 				t.Fatalf("couldn't parse schema: %v", err)
 			}
 
-			run(t, schema, []byte(parts[1]))
+			run(t, schema, []byte(example[1]))
 		})
 	}
 
@@ -174,15 +173,17 @@ func TestSuggestedValues(t *testing.T) {
 
 func TestSuggestedValuesDocs(t *testing.T) {
 	sch, err := Parse([]byte(`
-root
-  keys
-    a = <test>
+root = <root>
+definitions
+  root
+    keys
+      a = <test>
 
-test
-  one of
-    =
-      matches = a
-      docs = Hello!
+  test
+    one of
+      =
+        matches = a
+        docs = Hello!
 `))
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
@@ -193,7 +194,6 @@ test
 		{Value: "a", Docs: "Hello!"},
 	}
 	if !reflect.DeepEqual(suggestions, expected) {
-		dbg.Dbg(expected, suggestions)
 		t.Fatalf("expected suggestions: %#v, got: %#v", expected, suggestions)
 	}
 }
@@ -270,10 +270,12 @@ func TestLoad(t *testing.T) {
 
 func TestSuggestedKeys(t *testing.T) {
 	sch, err := Parse([]byte(`
-root
-  keys
-    a = .*
-    b = .*
+root = <root>
+definitions
+  root
+    keys
+      a = .*
+      b = .*
 	`))
 	if err != nil {
 		t.Fatalf("failed to parse schema: %v", err)
@@ -290,15 +292,22 @@ root
 	}
 
 	sch, err = Parse([]byte(`
-root
-  keys
-    a = <nested>
 
-nested
-  keys
-    b = .*
-    c = .*
+root = <root>
+definitions
+  root
+    keys
+      a = <nested>
+
+  nested
+    keys
+      b = .*
+      c = .*
 	`))
+
+	if err != nil {
+		t.Fatalf("failed to parse schema: %v", err)
+	}
 
 	suggestions = sch.Validate([]byte("a\n  ")).SuggestedKeys(1)
 	if len(suggestions) != 2 || suggestions[0].Value != "b" || suggestions[1].Value != "c" {
@@ -306,23 +315,29 @@ nested
 	}
 
 	sch, err = Parse([]byte(`
-root
-  keys
-    a = <nested>
+root = <root>
+definitions
+  root
+    keys
+      a = <nested>
 
-nested
-  one of
-    = <b map>
-    = <c map>
+  nested
+    one of
+      = <b map>
+      = <c map>
 
-b map
-  required keys
-    b = .*
+  b map
+    required keys
+      b = .*
 
-c map
-  required keys
-    c = .*
+  c map
+    required keys
+      c = .*
 	`))
+
+	if err != nil {
+		t.Fatalf("failed to parse schema: %v", err)
+	}
 
 	suggestions = sch.Validate([]byte("a\n  ")).SuggestedKeys(1)
 	if len(suggestions) != 2 || suggestions[0].Value != "b" || suggestions[1].Value != "c" {
@@ -330,20 +345,26 @@ c map
 	}
 
 	sch, err = Parse([]byte(`
-root
-  keys
-    a = <nested>
+root = <root>
+definitions
+  root
+    keys
+      a = <nested>
 
-nested
-  keys
-    b = <wow>
+  nested
+    keys
+      b = <wow>
 
-wow
-  required keys
-    d = .*
-  keys
-    e = .*
+  wow
+    required keys
+      d = .*
+    keys
+      e = .*
 	`))
+
+	if err != nil {
+		t.Fatalf("failed to parse schema: %v", err)
+	}
 
 	suggestions = sch.Validate([]byte("a\n  b\n")).SuggestedKeys(2)
 	if len(suggestions) != 2 || suggestions[0].Value != "d" || suggestions[1].Value != "e" {
@@ -351,11 +372,13 @@ wow
 	}
 
 	sch, err = Parse([]byte(`
-root
-  keys
-    a
-      matches = hello
-      docs = Hello!
+root = <root>
+definitions
+  root
+    keys
+      a
+        matches = hello
+        docs = Hello!
 `))
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)

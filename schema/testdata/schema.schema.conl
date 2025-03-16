@@ -2,96 +2,95 @@
 ;
 ; It consists of a map of named definitions, each built up of matchers.
 ;
-value matcher
-  one of
-    ; If a matcher starts with < it is a reference to a definition
-    ; elsewhere in the schema. Values match this matcher if they match
-    ; that definition.
-    = \<(.*)>
-    ; Otherwise, it is a regular expression. Values match this matcher
-    ; if they are scalars that match the regular expression.
-    = [^<].*
+root = <schema>
+definitions
+  schema
+    required keys
+      root = <matcher>
+      definitions = <definitions>
+    keys
+      schema = .*
 
-documented matcher
-  required keys
-    matches = <value matcher>
-  keys
-    docs = .*
+  definitions
+    keys
+      .* = <definition>
 
-matcher
-  one of
-    = <value matcher>
-    = <documented matcher>
-
-; There are four kinds of definition.
-definition
-  one of
-    = <scalar>
-    = <map>
-    = <list>
-    = <one of>
-
-; A scalar definition matches a scalar against the given matcher.
-; In practice this means that the matcher must either be a regular expression,
-; or a reference to a scalar definition (or a one-of that contains scalar definitions).
-scalar
-  required keys
-    scalar
-      matches = <matcher>
-      docs = """
-         Matches only scalars. The content of the scalar
-         must match the given matcher.
-
-
-; A "one of" definition represents an OR of possible definitions.
-; This is the primary mechanism in CONL schema to allow a value to have
-; more than one type; but it is also useful when a value is a discriminated
-; union.
-one of
-  required keys
+  definition
     one of
-     matches = <matcher list>
-     docs = The value in the document must match one of the given matchers.
+      = <scalar>
+      = <map>
+      = <list>
+      = <one of>
 
-matcher list
-  items = <matcher>
+  ; A scalar definition matches a scalar against the given matcher.
+  ; In practice this means that the matcher must either be a regular expression,
+  ; or a reference to a scalar definition (or a one-of that contains scalar definitions).
+  scalar
+    required keys
+      scalar
+        matches = <matcher>
+        docs = """
+          Matches only scalars. The content of the scalar
+          must match the given matcher.
 
-; A list definition matcches a list.
-list
-  keys
-    ; If required items is present, then the list must be at least
-    ; as long as the required items list. From the start of the list
-    ; each item must match the corresponding matcher in the required
-    ; items list.
-    required items = <matcher list>
-    ; If items is present then each item (except the required items)
-    ; must match the matcher. If no items key is present the list
-    ; must be exactly the length of the required items key (or empty).
+  ; A "one of" definition represents an OR of possible definitions.
+  ; This is the primary mechanism in CONL schema to allow a value to have
+  ; more than one type; but it is also useful when a value is a discriminated
+  ; union.
+  one of
+    required keys
+      one of
+        matches = <matcher list>
+        docs = The value in the document must match one of the given matchers.
+
+  ; A list definition matcches a list.
+  list
+    keys
+      ; If required items is present, then the list must be at least
+      ; as long as the required items list. From the start of the list
+      ; each item must match the corresponding matcher in the required
+      ; items list.
+      required items = <matcher list>
+      ; If items is present then each item (except the required items)
+      ; must match the matcher. If no items key is present the list
+      ; must be exactly the length of the required items key (or empty).
+      items = <matcher>
+
+  ; A "map" definition matches a CONL map.
+  map
+    keys
+      ; if requried keys is set, then exactly one key-value pair in the target
+      ; map must match each required key-value pair.
+      required keys = <matcher map>
+      ; if keys is set, then every key-value pair in the target map
+      ; (excerpt for those that matched on required keys) must match one of
+      ; the key-value pairs in the matcher map.
+      keys = <matcher map>
+
+  value matcher
+    one of
+      ; If a matcher starts with < it is a reference to a definition
+      ; elsewhere in the schema. Values match this matcher if they match
+      ; that definition.
+      = \<(.*)>
+      ; Otherwise, it is a regular expression. Values match this matcher
+      ; if they are scalars that match the regular expression.
+      = [^<].*
+
+  documented matcher
+    required keys
+      matches = <value matcher>
+    keys
+      docs = .*
+
+  matcher
+    one of
+      = <value matcher>
+      = <documented matcher>
+
+  matcher list
     items = <matcher>
 
-; A "map" definition matches a CONL map.
-map
-  keys
-    ; if requried keys is set, then exactly one key-value pair in the target
-    ; map must match each required key-value pair.
-    required keys = <matcher map>
-    ; if keys is set, then every key-value pair in the target map
-    ; (excerpt for those that matched on required keys) must match one of
-    ; the key-value pairs in the matcher map.
-    keys = <matcher map>
-
-matcher map
-  keys
-    <matcher> = <matcher>
-
-; The "root" definition is matched against the entire document.
-root
-  required keys
-    root = <definition>
-  keys
-    ; The "well-known" key schema is a scalar reference to a CONL schema.
-    ; e.g. https://conl.dev/schema/schema.conl
-    schema = .*
-    ; Additional definitions can be added as needed, and refered to
-    ; using the <definition> syntax.
-    .* = <definition>
+  matcher map
+    keys
+      <matcher> = <matcher>

@@ -1,15 +1,12 @@
-root
-  one of
-    = <map>
-    = <list>
-    = <scalar>
-
-scalar
-  scalar = .*
-
-list
-  items = <root>
-
-map
-  keys
-    <scalar> = <root>
+root = <any>
+definitions
+  any
+    one of
+      = <map>
+      = <list>
+      = .*
+  list
+    items = <any>
+  map
+    keys
+      .* = <any>

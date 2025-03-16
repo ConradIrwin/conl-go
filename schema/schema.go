@@ -4,17 +4,20 @@ package schema
 
 import (
 	"fmt"
+	"iter"
 	"regexp"
 	"slices"
 	"strings"
 	"sync"
 
 	"github.com/ConradIrwin/conl-go"
+	"github.com/ConradIrwin/dbg"
 )
 
 // A Schema allows you to validate a CONL document against a set of rules.
 type Schema struct {
-	schema map[string]*definition
+	root        *matcher
+	definitions map[string]*definition
 }
 
 // Parse a schema from the given input.
@@ -22,17 +25,21 @@ type Schema struct {
 // or if the schema contains references to definitions that don't exist,
 // invalid regular expressions, or circular references.
 func Parse(input []byte) (*Schema, error) {
-	s := &Schema{schema: map[string]*definition{}}
-	if err := conl.Unmarshal(input, &s.schema); err != nil {
+	type tempSchema struct {
+		Root        *matcher               `conl:"root"`
+		Schema      string                 `conl:"schema"`
+		Definitions map[string]*definition `conl:"definitions"`
+	}
+	t := &tempSchema{}
+	if err := conl.Unmarshal(input, &t); err != nil {
 		return nil, err
 	}
-	if _, ok := s.schema["root"]; !ok {
-		return nil, fmt.Errorf("invalid schema: missing \"root\"")
+	s := &Schema{root: t.Root, definitions: t.Definitions}
+	if s.root == nil {
+		return nil, fmt.Errorf("missing root")
 	}
-	for k, v := range s.schema {
-		if err := v.resolve(s, k, []string{}); err != nil {
-			return nil, err
-		}
+	if err := s.root.resolve(s, []string{}); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
@@ -46,8 +53,8 @@ func Parse(input []byte) (*Schema, error) {
 // The exact errors returned will change over time as heuristics improve.
 func (s *Schema) Validate(input []byte) *Result {
 	doc := parseDoc(input)
-	rootToken := &conl.Token{Lno: 1}
-	guesses, errors := s.schema["root"].validate(s, doc, rootToken)
+	rootToken := &conl.Token{Lno: 1, Kind: conl.NoValue}
+	guesses, errors := s.root.validate(s, doc, rootToken)
 	slices.SortFunc(errors, func(i, j ValidationError) int {
 		return i.token.Lno - j.token.Lno
 	})
@@ -102,7 +109,9 @@ outer:
 func (r *Result) SuggestedKeys(lno int) []*Suggestion {
 	definitions := []*definition{}
 	if lno == 0 {
-		definitions = append(definitions, r.schema.schema["root"])
+		if r.schema.root.Matches.Resolved != nil {
+			definitions = append(definitions, r.schema.root.Matches.Resolved)
+		}
 	} else {
 		matchers := r.matchersForLine(lno)
 		for _, m := range matchers {
@@ -155,7 +164,7 @@ func (r *Result) SuggestedValues(lno int) ([]*Suggestion, bool) {
 	possible := []*Suggestion{}
 	indentAllowed := false
 	if lno == 0 {
-		p, i := r.schema.schema["root"].suggestedValues()
+		p, i := r.schema.root.suggestedValues()
 		possible = append(possible, p...)
 		indentAllowed = indentAllowed || i
 	} else {
@@ -183,16 +192,18 @@ var once sync.Once
 func Any() *Schema {
 	once.Do(func() {
 		sch, err := Parse([]byte(`
-root
-  one of
-    = <map>
-    = <list>
-    = .*
-list
-  items = <root>
-map
-  keys
-    .* = <root>
+root = <any>
+definitions
+  any
+    one of
+      = <map>
+      = <list>
+      = .*
+  list
+    items = <any>
+  map
+    keys
+     .* = <any>
 `))
 		if err != nil {
 			panic(err)
@@ -245,7 +256,7 @@ func Validate(input []byte, load func(schema string) (*Schema, error)) *Result {
 	}
 	rootToken := &conl.Token{Lno: 1}
 
-	guesses, errors := schema.schema["root"].validate(schema, doc, rootToken)
+	guesses, errors := schema.root.validate(schema, doc, rootToken)
 	if validationError != nil {
 		errors = append(errors, *validationError)
 	}
@@ -483,6 +494,7 @@ func (d *definition) validate(s *Schema, val *conlValue, pos *conl.Token) (map[*
 
 		for keyMatcher := range d.RequiredKeys {
 			if !seenRequired[keyMatcher] {
+				dbg.Dbg(pos, keyMatcher.Matches.String())
 				errors = append(errors, ValidationError{
 					token:       pos,
 					requiredKey: []string{keyMatcher.Matches.String()},
@@ -638,7 +650,7 @@ func (m *matcher) resolve(s *Schema, seen []string) error {
 	if m.Matches.Pattern != nil || m.Matches.Resolved != nil {
 		return nil
 	}
-	next, ok := s.schema[m.Matches.Reference]
+	next, ok := s.definitions[m.Matches.Reference]
 	if !ok {
 		return fmt.Errorf("<%s> is not defined", m.Matches.Reference)
 	} else if slices.Contains(seen, m.Matches.Reference) {
@@ -712,8 +724,30 @@ func (v *valueMatcher) UnmarshalText(data []byte) error {
 	return nil
 }
 
-func (m *matcher) UnmarshalText(data []byte) error {
-	return m.Matches.UnmarshalText(data)
+func peek(tokens iter.Seq[conl.Token]) conl.Token {
+	for tok := range tokens {
+		return tok
+	}
+	return conl.Token{}
+}
+
+func (m *matcher) UnmarshalCONL(tokens iter.Seq[conl.Token]) error {
+	token := peek(tokens)
+	switch token.Kind {
+	case conl.Scalar:
+		return m.Matches.UnmarshalText([]byte(token.Content))
+	case conl.NoValue:
+		return fmt.Errorf("%d: missing matcher", token.Lno)
+	default:
+		type tmp matcher
+		t := tmp{}
+		err := conl.UnmarshalCONL(tokens, &t)
+		if err != nil {
+			return err
+		}
+		*m = (matcher)(t)
+		return nil
+	}
 }
 
 func (v *valueMatcher) String() string {

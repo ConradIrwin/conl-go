@@ -1,49 +1,62 @@
-; simple
-root
-  keys
-    a = test
----
-a = ; test
-===
-; one of
-root
-  keys
-    a = <test>
-test
-  one of
-    = ca
-    = cb
-    = cc
----
-a = ; ca,cb,cc
-===
-; one of nested
-root
-  one of
-    = <a>
-    = <b>
+simple
+  = """conl
+    root = <root>
+    definitions
+      root
+        keys
+          a = test
+  = """conl
+    a = ; test
 
-a
-  required keys
-    type = aa
-b
-  required keys
-    type = bb
----
-type = ; aa,bb
-===
-; dot star
-root
-  keys
-    a = .*
-    b = a
----
-a ;
-b ; a
-===
-; ceci une pipe
-root
-  keys
-    a = one|two|three
----
-a ; one,three,two
+one of
+  = """conl
+    root = <root>
+    definitions
+      root
+        keys
+          a = <test>
+      test
+        one of
+          = ca
+          = cb
+          = cc
+  = """conl
+    a = ; ca,cb,cc
+
+one of nested
+  = """conl
+    root = <root>
+    definitions
+      root
+        one of
+          = <a>
+          = <b>
+      a
+        required keys
+          type = aa
+      b
+        required keys
+          type = bb
+
+  = """conl
+    type = ; aa,bb
+dot star
+  = """conl
+    root = <root>
+    definitions
+      root
+        keys
+          a = .*
+          b = a
+  = """conl
+    a ;
+    b ; a
+ceci une pipe
+  = """conl
+    root = <root>
+    definitions
+      root
+        keys
+          a = one|two|three
+  = """conl
+    a ; one,three,two
