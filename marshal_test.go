@@ -1,13 +1,14 @@
 package conl_test
 
 import (
+	"fmt"
+	"iter"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ConradIrwin/conl-go"
-	"github.com/ConradIrwin/dbg"
 )
 
 func TestMarshal(t *testing.T) {
@@ -320,7 +321,6 @@ definitions
 			// For structs and maps, compare the actual value to the expected
 			actual := reflect.ValueOf(tt.target).Elem().Interface()
 			if !reflect.DeepEqual(actual, tt.expected) {
-				dbg.Dbg(actual, tt.expected)
 				t.Errorf("got %+v, want %+v", actual, tt.expected)
 			}
 		})
@@ -500,4 +500,105 @@ func TestNoValue(t *testing.T) {
 	} else if err.Error() != "1: expected value" {
 		t.Logf("expected error: %v, got: %v", "1: expected value", err)
 	}
+}
+
+type test struct {
+	seen []conl.TokenKind
+}
+
+func (t *test) UnmarshalCONL(tokens iter.Seq[conl.Token]) error {
+	for tok := range tokens {
+		t.seen = append(t.seen, tok.Kind)
+	}
+	return nil
+}
+
+type unmarshalTest struct {
+	Scalar  *test `conl:"scalar"`
+	NoValue *test `conl:"no value"`
+	List    *test `conl:"list"`
+	Map     *test `conl:"map"`
+}
+
+type matcher2 struct {
+	Matches string `conl:"matches"`
+	Docs    string `conl:"docs"`
+}
+
+func (m2 *matcher2) UnmarshalCONL(tokens iter.Seq[conl.Token]) error {
+	for tok := range tokens {
+		switch tok.Kind {
+		case conl.Scalar:
+			m2.Matches = tok.Content
+			return nil
+		case conl.NoValue:
+			return fmt.Errorf("%d: expected value", tok.Lno)
+		default:
+			type tmp matcher2
+			t := &tmp{}
+			if err := conl.UnmarshalCONL(tokens, t); err != nil {
+				return err
+			}
+			*m2 = (matcher2)(*t)
+			return nil
+		}
+	}
+	return nil
+}
+
+func TestUnmarshalCONL(t *testing.T) {
+
+	input := `
+scalar = 1
+no value
+list
+  = 1
+  = 2
+map
+  a = b`
+
+	v := &unmarshalTest{}
+	if err := conl.Unmarshal([]byte(input), v); err != nil {
+		t.Fatal(err)
+	}
+
+	expected := &unmarshalTest{
+		Scalar:  &test{seen: []conl.TokenKind{conl.Scalar}},
+		NoValue: &test{seen: []conl.TokenKind{conl.NoValue}},
+		List:    &test{seen: []conl.TokenKind{conl.ListItem, conl.Scalar, conl.ListItem, conl.Scalar}},
+		Map:     &test{seen: []conl.TokenKind{conl.MapKey, conl.Scalar}},
+	}
+
+	if !reflect.DeepEqual(v, expected) {
+		t.Errorf("expected %+v, got %+v", expected, v)
+	}
+
+}
+
+func TestUnmarshalCONLMatcher(t *testing.T) {
+	type matcher2test struct {
+		Scalar *matcher2 `conl:"scalar"`
+		Map    *matcher2 `conl:"map"`
+	}
+
+	input := `
+scalar = test
+map
+  matches = .*
+  docs = test`
+
+	v := &matcher2test{}
+	if err := conl.Unmarshal([]byte(input), v); err != nil {
+		t.Fatal(err)
+	}
+
+	expected := &matcher2test{
+		Scalar: &matcher2{Matches: "test", Docs: ""},
+		Map:    &matcher2{Matches: ".*", Docs: "test"},
+	}
+
+	if !reflect.DeepEqual(v, expected) {
+		t.Errorf("expected %+v, got %+v", expected, v)
+	}
+
 }

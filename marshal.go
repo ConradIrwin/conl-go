@@ -234,6 +234,15 @@ func Marshal(v any) ([]byte, error) {
 	return []byte(str + "\n"), err
 }
 
+// Unmarshaler is implemented by types that want to customize their CONL
+// parsing. The provided iterator can be re-used (for example, using conl.UnmarshalCONL).
+// The provided tokens have been pre-processed as described by [Tokens], and additionally
+// filtered such that it only contains `MapKey`, `ListItem`, `Scalar`, `NoValue`, `Indent` and `Outdent`.
+// The first token of the iterator is always MapKey, ListItem, Scalar, or NoValue.
+type Unmarshaler interface {
+	UnmarshalCONL(tokens iter.Seq[Token]) error
+}
+
 // Unmarshal updates the value v with the data from the CONL document.
 // v should be a non-nil pointer to a struct, slice, map, interface, array.
 // Unmarshal acts similarly to json.Unmarshal.
@@ -249,12 +258,19 @@ func Marshal(v any) ([]byte, error) {
 // If the CONL document is invalid, or doesn't match the type of `v`, then an
 // error will be returned.
 func Unmarshal(data []byte, v any) error {
+	return UnmarshalCONL(Tokens(data), v)
+}
+
+// UnmarshalCONL is the same as Unmarshal, but you can pass it an existing
+// stream of tokens (for example implementations of [Unmarshaler] might want
+// to use this).
+func UnmarshalCONL(tok iter.Seq[Token], v any) error {
 	value := reflect.ValueOf(v)
 	if value.Kind() != reflect.Ptr || value.IsNil() {
 		return fmt.Errorf("invalid target, must be a non-nil pointer")
 	}
 
-	iter, done := iter.Pull(Tokens(data))
+	iter, done := iter.Pull(tok)
 	defer done()
 	lastLine := 0
 	tokenErr := error(nil)
@@ -266,10 +282,13 @@ func Unmarshal(data []byte, v any) error {
 				valid = false
 			}
 			if !valid {
-				return Token{Lno: lastLine, Kind: sentinel, Content: ""}
+				return Token{Lno: lastLine, Kind: Outdent, Content: ""}
 			}
 			if token.Kind == Comment || token.Kind == MultilineHint {
 				continue
+			}
+			if token.Kind == MultilineScalar {
+				token.Kind = Scalar
 			}
 			lastLine = token.Lno
 			return token
@@ -297,9 +316,52 @@ func peekToken(nextToken func() Token) (Token, func() Token) {
 	}
 }
 
+func tokenIter(nextToken func() Token) iter.Seq[Token] {
+	token := nextToken()
+	if token.Kind == Indent {
+		token = nextToken()
+	}
+	tokens := []Token{token}
+	if token.Kind == ListItem || token.Kind == MapKey {
+		indentCount := 0
+	loop:
+		for {
+			token = nextToken()
+			switch token.Kind {
+			case Indent:
+				indentCount += 1
+			case Outdent:
+				if indentCount == 0 {
+					break loop
+				}
+				indentCount -= 1
+			}
+			tokens = append(tokens, token)
+		}
+	}
+	return slices.Values(tokens)
+}
+
 func unmarshalValue(nextToken func() Token, v reflect.Value) error {
 	if !v.CanSet() {
 		panic(fmt.Errorf("cannot set value of type: %v", v.Type()))
+	}
+	if cu, ok := v.Addr().Interface().(Unmarshaler); ok {
+		if err := cu.UnmarshalCONL(tokenIter(nextToken)); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if tu, ok := v.Addr().Interface().(encoding.TextUnmarshaler); ok {
+		token, next := peekToken(nextToken)
+		if token.Kind == Scalar {
+			if err := tu.UnmarshalText([]byte(token.Content)); err != nil {
+				return fmt.Errorf("%d: %w", token.Lno, err)
+			}
+			return nil
+		}
+		nextToken = next
 	}
 
 	switch v.Kind() {
@@ -310,14 +372,18 @@ func unmarshalValue(nextToken func() Token, v reflect.Value) error {
 	case reflect.Interface:
 		return unmarshalInterface(nextToken, v)
 	case reflect.Ptr:
-		t, next := peekToken(nextToken)
-		if t.Kind == NoValue {
-			return nil
+
+		if _, ok := v.Interface().(Unmarshaler); !ok {
+			t, next := peekToken(nextToken)
+			if t.Kind == NoValue {
+				return nil
+			}
+			nextToken = next
 		}
 		if v.IsNil() {
 			v.Set(reflect.New(v.Type().Elem()))
 		}
-		return unmarshalValue(next, v.Elem())
+		return unmarshalValue(nextToken, v.Elem())
 	case reflect.Array:
 		return unmarshalArray(nextToken, v)
 	case reflect.Slice:
@@ -329,7 +395,7 @@ func unmarshalValue(nextToken func() Token, v reflect.Value) error {
 		reflect.Bool,
 		reflect.String:
 		token := nextToken()
-		if token.Kind == Scalar || token.Kind == MultilineScalar {
+		if token.Kind == Scalar {
 			return unmarshalScalar(token.Lno, token.Content, v)
 		}
 		return fmt.Errorf("%d: expected value", token.Lno)
@@ -385,17 +451,8 @@ func unmarshalStruct(nextToken func() Token, v reflect.Value) error {
 			if err := unmarshalValue(nextToken, field); err != nil {
 				return err
 			}
-		case Outdent, NoValue, sentinel:
+		case Outdent, NoValue:
 			return nil
-
-		case Scalar, MultilineScalar:
-			if tu, ok := v.Addr().Interface().(encoding.TextUnmarshaler); ok {
-				if err := tu.UnmarshalText([]byte(token.Content)); err != nil {
-					return fmt.Errorf("%d: %w", token.Lno, err)
-				}
-				return nil
-			}
-			fallthrough
 
 		default:
 			return fmt.Errorf("%d: unexpected %v, expected %v", token.Lno, token.Kind, v.Type())
@@ -443,10 +500,10 @@ func unmarshalInterface(nextToken func() Token, v reflect.Value) error {
 			}
 			v.Set(s)
 			return nil
-		case Scalar, MultilineScalar:
+		case Scalar:
 			v.Set(reflect.ValueOf(token.Content))
 			return nil
-		case Outdent, NoValue, sentinel:
+		case Outdent, NoValue:
 			return nil
 		default:
 			return fmt.Errorf("%d: unexpected %v", token.Lno, token.Kind)
@@ -477,17 +534,8 @@ func unmarshalMap(nextToken func() Token, v reflect.Value) error {
 				return err
 			}
 			v.SetMapIndex(key, value)
-		case Outdent, NoValue, sentinel:
+		case Outdent, NoValue:
 			return nil
-
-		case Scalar, MultilineScalar:
-			if tu, ok := v.Addr().Interface().(encoding.TextUnmarshaler); ok {
-				if err := tu.UnmarshalText([]byte(token.Content)); err != nil {
-					return fmt.Errorf("%d: %w", token.Lno, err)
-				}
-				return nil
-			}
-			fallthrough
 
 		default:
 			return fmt.Errorf("%d: unexpected %s, expected %s", token.Lno, token.Kind, MapKey)
@@ -500,7 +548,7 @@ func unmarshalSlice(nextToken func() Token, v reflect.Value) error {
 
 	if elemType.Kind() == reflect.Uint8 {
 		token := nextToken()
-		if token.Kind == Scalar || token.Kind == MultilineScalar {
+		if token.Kind == Scalar {
 			r := strings.NewReplacer(" ", "", "\t", "", "\n", "")
 			input := r.Replace(token.Content)
 			output, err := base64.RawStdEncoding.DecodeString(input)
@@ -524,17 +572,8 @@ func unmarshalSlice(nextToken func() Token, v reflect.Value) error {
 				return err
 			}
 			v.Set(reflect.Append(v, elem))
-		case Outdent, NoValue, sentinel:
+		case Outdent, NoValue:
 			return nil
-
-		case Scalar, MultilineScalar:
-			if tu, ok := v.Addr().Interface().(encoding.TextUnmarshaler); ok {
-				if err := tu.UnmarshalText([]byte(token.Content)); err != nil {
-					return fmt.Errorf("%d: %w", token.Lno, err)
-				}
-				return nil
-			}
-			fallthrough
 
 		default:
 			return fmt.Errorf("%d: unexpected %s, expected %s", token.Lno, token.Kind, ListItem)
@@ -559,17 +598,8 @@ func unmarshalArray(nextToken func() Token, v reflect.Value) error {
 			}
 			v.Index(i).Set(elem)
 			i += 1
-		case Outdent, NoValue, sentinel:
+		case Outdent, NoValue:
 			return nil
-
-		case Scalar, MultilineScalar:
-			if tu, ok := v.Addr().Interface().(encoding.TextUnmarshaler); ok {
-				if err := tu.UnmarshalText([]byte(token.Content)); err != nil {
-					return fmt.Errorf("%d: %w", token.Lno, err)
-				}
-				return nil
-			}
-			fallthrough
 
 		default:
 			return fmt.Errorf("%d: unexpected %s, expected list", token.Lno, token.Kind)
@@ -578,21 +608,6 @@ func unmarshalArray(nextToken func() Token, v reflect.Value) error {
 }
 
 func unmarshalScalar(lno int, s string, v reflect.Value) error {
-	if _, ok := v.Interface().(encoding.TextUnmarshaler); ok {
-		if v.Kind() == reflect.Ptr && v.IsNil() {
-			v.Set(reflect.New(v.Type().Elem()))
-		}
-		if err := v.Interface().(encoding.TextUnmarshaler).UnmarshalText([]byte(s)); err != nil {
-			return fmt.Errorf("%d: %w", lno, err)
-		}
-		return nil
-	}
-	if tu, ok := v.Addr().Interface().(encoding.TextUnmarshaler); ok {
-		if err := tu.UnmarshalText([]byte(s)); err != nil {
-			return fmt.Errorf("%d: %w", lno, err)
-		}
-		return nil
-	}
 	switch v.Kind() {
 	case reflect.String:
 		v.SetString(s)

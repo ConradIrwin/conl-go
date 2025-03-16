@@ -14,8 +14,7 @@ type TokenKind int8
 
 // These tokens are yielded from [Tokens].
 const (
-	sentinel = TokenKind(iota)
-	Comment  = TokenKind(iota)
+	Comment = TokenKind(iota)
 	Indent
 	Outdent
 	MapKey
@@ -46,8 +45,6 @@ func (k TokenKind) String() string {
 		return "MultilineValue"
 	case MultilineHint:
 		return "MultilineHint"
-	case sentinel:
-		return "EndOfFile"
 	default:
 		panic("Unknown TokenKind")
 	}
