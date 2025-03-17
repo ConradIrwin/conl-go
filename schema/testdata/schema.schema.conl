@@ -6,10 +6,19 @@ root = <schema>
 definitions
   schema
     required keys
-      root = <matcher>
-      definitions = <definitions>
+      root
+        matches = <matcher>
+        docs = A reference to the definition to match against the root of the document.
+      definitions
+        matches = <definitions>
+        docs = The definitions which make up the schema.
     keys
-      schema = .*
+      schema
+        matches = .*
+        docs = """markdown
+          An (optional) URL or file path to the schema definition that describes this schema.
+
+          For example https://conl.dev/schema/schema.conl
 
   definitions
     keys
@@ -22,50 +31,48 @@ definitions
       = <list>
       = <one of>
 
-  ; A scalar definition matches a scalar against the given matcher.
-  ; In practice this means that the matcher must either be a regular expression,
-  ; or a reference to a scalar definition (or a one-of that contains scalar definitions).
   scalar
-    required keys
+    keys
       scalar
         matches = <matcher>
-        docs = """
-          Matches only scalars. The content of the scalar
-          must match the given matcher.
+        docs =  Matches scalars with the given matcher.
 
-  ; A "one of" definition represents an OR of possible definitions.
-  ; This is the primary mechanism in CONL schema to allow a value to have
-  ; more than one type; but it is also useful when a value is a discriminated
-  ; union.
   one of
     required keys
       one of
         matches = <matcher list>
-        docs = The value in the document must match one of the given matchers.
+        docs = Matches values which match any of the given matchers.
 
   ; A list definition matcches a list.
   list
     keys
-      ; If required items is present, then the list must be at least
-      ; as long as the required items list. From the start of the list
-      ; each item must match the corresponding matcher in the required
-      ; items list.
-      required items = <matcher list>
-      ; If items is present then each item (except the required items)
-      ; must match the matcher. If no items key is present the list
-      ; must be exactly the length of the required items key (or empty).
-      items = <matcher>
+      required items
+        matches = <matcher list>
+        docs = """markdown
+          Matches lists item-by-item with the given matchers.
+
+          If `items` is also set, then every required item must exist, and
+          the list may have any number of additional items that match `items`.
+
+      items
+        matches = <matcher>
+        docs = Matches lists where every item matches the given matcher.
 
   ; A "map" definition matches a CONL map.
   map
     keys
-      ; if requried keys is set, then exactly one key-value pair in the target
-      ; map must match each required key-value pair.
-      required keys = <matcher map>
-      ; if keys is set, then every key-value pair in the target map
-      ; (excerpt for those that matched on required keys) must match one of
-      ; the key-value pairs in the matcher map.
-      keys = <matcher map>
+      required keys
+        matches = <matcher map>
+        docs = """markdown
+          Matches maps where exactly one key-value pair matches each required key-value pair.
+
+          If `keys` is also set, then additional keys are also allowed.
+      keys =
+        matches = <matcher map>
+        docs = """markdown
+          Matches maps where every key-value pair matches the given matcher.
+
+          Unless `required keys` is also set, this matches empty maps.
 
   value matcher
     one of
@@ -81,7 +88,10 @@ definitions
     required keys
       matches = <value matcher>
     keys
-      docs = .*
+      docs
+        matches = .*
+        docs = """markdown
+         Documentation for this matcher. This is typically formatted using Markdown.
 
   matcher
     one of
@@ -93,4 +103,4 @@ definitions
 
   matcher map
     keys
-      <matcher> = <matcher>
+      <value matcher> = <matcher>
