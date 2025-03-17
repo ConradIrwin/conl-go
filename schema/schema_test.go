@@ -392,3 +392,67 @@ definitions
 		t.Fatalf("expected suggestions: %#v, got: %#v", expected, suggestions)
 	}
 }
+
+func TestDocsForKey(t *testing.T) {
+	sch, err := Parse([]byte(`
+root = <root>
+definitions
+  root
+    keys
+      a
+        matches = hello
+        docs = Hello!
+`))
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	docs := sch.Validate([]byte("a = hello")).DocsForKey(1)
+	expected := "Hello!"
+	if docs != expected {
+		t.Fatalf("expected docs: %#v, got: %#v", expected, docs)
+	}
+}
+
+func TestDocs(t *testing.T) {
+	sch, err := Parse([]byte(`
+root = <root>
+definitions
+  root
+    keys
+      a
+        matches = <hello>
+        docs = Key!
+      b
+        matches = ship
+        docs = B!
+
+  hello
+    scalar
+      matches = hello
+      docs = Value!
+`))
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	result := sch.Validate([]byte("a = hello\nb = ship"))
+
+	value := result.DocsForValue(1)
+	expected := "Value!"
+	if value != expected {
+		t.Fatalf("expected docs: %#v, got: %#v", expected, value)
+	}
+
+	key := result.DocsForKey(1)
+	expected = "Key!"
+	if key != expected {
+		t.Fatalf("expected docs: %#v, got: %#v", expected, key)
+	}
+
+	key = result.DocsForKey(2)
+	expected = "B!"
+	if key != expected {
+		t.Fatalf("expected docs: %#v, got: %#v", expected, key)
+	}
+}
