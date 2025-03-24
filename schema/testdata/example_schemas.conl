@@ -271,7 +271,7 @@ required lists
     test 2
       = 1
       = 2 ; 2-3 unexpected list item
-    test 3 ; 0-6 missing required list item 1
+    test 3 ; 0-6 expected a list
 
 mixed lists
   = """conl
@@ -291,7 +291,7 @@ mixed lists
     test 2
       = 1
       = 2
-    test 3 ; 0-6 missing required list item 1
+    test 3 ; 0-6 expected a list
     test 4
       = 2 ; 4-5 expected 1
     test 5
@@ -339,7 +339,7 @@ mixed types list
     test 2
       = 5s
     test 3 ; 0-6 missing required key timeout
-      duration = 5s
+      duration = 5s ; 2-10 unexpected key duration
     test 4
       timeout = 10ms
 scalar
@@ -385,7 +385,7 @@ duplicate required keys
           test .* = <test>
 
   = """conl
-    test 1 ; 0-6 missing required key c|d
+    test 1 ; 0-6 missing required key c or d
       a = 1
       b = 2 ; 2-3 duplicate key a|b
     test 2

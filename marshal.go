@@ -278,7 +278,7 @@ func UnmarshalCONL(tok iter.Seq[Token], v any) error {
 		for {
 			token, valid := iter()
 			if token.Error != nil {
-				tokenErr = token.Error
+				tokenErr = fmt.Errorf("%v: %s", token.Lno, token.Error)
 				valid = false
 			}
 			if !valid {

@@ -3,7 +3,6 @@ package schema
 import (
 	"fmt"
 	"os"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -39,8 +38,6 @@ func TestSchemaSelf(t *testing.T) {
 		t.Fatal("any did not match any")
 	}
 	errs = schemaSchema.Validate(anyBytes).Errors()
-	t.Log("--------------------------------------")
-	t.Log(errs)
 	if errs != nil {
 		for _, err := range errs {
 			t.Log(err.Error())
@@ -152,10 +149,13 @@ func TestSuggestedValues(t *testing.T) {
 				if strings.HasPrefix(token.Content, ";") {
 					continue
 				}
-				suggestions, _ := result.SuggestedValues(token.Lno)
+				suggestions := result.SuggestedValues(token.Lno)
 				actual := make([]string, len(suggestions))
 				for i, suggestion := range suggestions {
 					actual[i] = suggestion.Value
+					if suggestion.Docs != "" {
+						actual[i] += " \"" + suggestion.Docs + "\""
+					}
 				}
 
 				expected := strings.Split(strings.TrimSpace(token.Content), ",")
@@ -169,33 +169,6 @@ func TestSuggestedValues(t *testing.T) {
 			}
 		}
 	})
-}
-
-func TestSuggestedValuesDocs(t *testing.T) {
-	sch, err := Parse([]byte(`
-root = <root>
-definitions
-  root
-    keys
-      a = <test>
-
-  test
-    one of
-      =
-        matches = a
-        docs = Hello!
-`))
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
-
-	suggestions, _ := sch.Validate([]byte("a = ")).SuggestedValues(1)
-	expected := []*Suggestion{
-		{Value: "a", Docs: "Hello!"},
-	}
-	if !reflect.DeepEqual(suggestions, expected) {
-		t.Fatalf("expected suggestions: %#v, got: %#v", expected, suggestions)
-	}
 }
 
 func TestSplitLine(t *testing.T) {
@@ -269,128 +242,35 @@ func TestLoad(t *testing.T) {
 }
 
 func TestSuggestedKeys(t *testing.T) {
-	sch, err := Parse([]byte(`
-root = <root>
-definitions
-  root
-    keys
-      a = .*
-      b = .*
-	`))
-	if err != nil {
-		t.Fatalf("failed to parse schema: %v", err)
-	}
+	examples(t, "testdata/suggested_keys.conl", func(t *testing.T, schema *Schema, input []byte) {
+		result := schema.Validate(input)
 
-	suggestions := sch.Validate([]byte("")).SuggestedKeys(0)
-	if len(suggestions) != 2 || suggestions[0].Value != "a" || suggestions[1].Value != "b" {
-		t.Fatalf("expected suggestions: %v, got: %v", []string{"a", "b"}, suggestions)
-	}
+		for token := range conl.Tokens(input) {
+			if token.Kind == conl.Comment {
+				if strings.HasPrefix(token.Content, ";") {
+					continue
+				}
+				suggestions := result.SuggestedKeys(token.Lno - 1)
+				actual := make([]string, len(suggestions))
+				for i, suggestion := range suggestions {
+					actual[i] = suggestion.Value
+					if suggestion.Docs != "" {
+						actual[i] += " \"" + suggestion.Docs + "\""
+					}
+				}
 
-	suggestions = sch.Validate([]byte("a = 1\n")).SuggestedKeys(0)
-	if len(suggestions) != 1 || suggestions[0].Value != "b" {
-		t.Fatalf("expected suggestions: %v, got: %v", []string{"a", "b"}, suggestions)
-	}
+				expected := strings.Split(strings.TrimSpace(token.Content), ",")
+				if strings.TrimSpace(token.Content) == "" {
+					expected = []string{}
+				}
 
-	sch, err = Parse([]byte(`
+				if !slices.Equal(actual, expected) {
+					t.Fatalf("%v: expected %v, got %v", token.Lno, expected, actual)
+				}
+			}
+		}
 
-root = <root>
-definitions
-  root
-    keys
-      a = <nested>
-
-  nested
-    keys
-      b = .*
-      c = .*
-	`))
-
-	if err != nil {
-		t.Fatalf("failed to parse schema: %v", err)
-	}
-
-	suggestions = sch.Validate([]byte("a\n  ")).SuggestedKeys(1)
-	if len(suggestions) != 2 || suggestions[0].Value != "b" || suggestions[1].Value != "c" {
-		t.Fatalf("expected suggestions: %v, got: %v", []string{"b", "c"}, suggestions)
-	}
-
-	sch, err = Parse([]byte(`
-root = <root>
-definitions
-  root
-    keys
-      a = <nested>
-
-  nested
-    one of
-      = <b map>
-      = <c map>
-
-  b map
-    required keys
-      b = .*
-
-  c map
-    required keys
-      c = .*
-	`))
-
-	if err != nil {
-		t.Fatalf("failed to parse schema: %v", err)
-	}
-
-	suggestions = sch.Validate([]byte("a\n  ")).SuggestedKeys(1)
-	if len(suggestions) != 2 || suggestions[0].Value != "b" || suggestions[1].Value != "c" {
-		t.Fatalf("expected suggestions: %v, got: %v", []string{"b", "c"}, suggestions)
-	}
-
-	sch, err = Parse([]byte(`
-root = <root>
-definitions
-  root
-    keys
-      a = <nested>
-
-  nested
-    keys
-      b = <wow>
-
-  wow
-    required keys
-      d = .*
-    keys
-      e = .*
-	`))
-
-	if err != nil {
-		t.Fatalf("failed to parse schema: %v", err)
-	}
-
-	suggestions = sch.Validate([]byte("a\n  b\n")).SuggestedKeys(2)
-	if len(suggestions) != 2 || suggestions[0].Value != "d" || suggestions[1].Value != "e" {
-		t.Fatalf("expected suggestions: %v, got: %v", []string{"d", "e"}, suggestions)
-	}
-
-	sch, err = Parse([]byte(`
-root = <root>
-definitions
-  root
-    keys
-      a
-        matches = hello
-        docs = Hello!
-`))
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
-
-	suggestions = sch.Validate([]byte("")).SuggestedKeys(0)
-	expected := []*Suggestion{
-		{Value: "a", Docs: "Hello!"},
-	}
-	if !reflect.DeepEqual(suggestions, expected) {
-		t.Fatalf("expected suggestions: %#v, got: %#v", expected, suggestions)
-	}
+	})
 }
 
 func TestDocsForKey(t *testing.T) {

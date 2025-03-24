@@ -1,0 +1,105 @@
+simple
+  = """conl
+    root = <root>
+    definitions
+      root
+        keys
+          a = .*
+          b = .*
+  = """
+    ; a,b
+
+nested
+  = """conl
+    root = <root>
+    definitions
+      root
+        keys
+          a = <nested>
+
+      nested
+        keys
+          b = .*
+          c = .*
+
+  = """
+    a
+      ; b,c
+
+one ofs
+  = """conl
+  	root = <root>
+  	definitions
+  	  root
+  	    keys
+  	      a = <nested>
+  	  nested
+  	    one of
+  	      = <b map>
+  	      = <c map>
+  	  b map
+  	    required keys
+  	      b = .*
+  	  c map
+  	    required keys
+  	      c = .*
+  = """conl
+    a
+      ; b,c
+extra nested
+  = """conl
+  	root = <root>
+  	definitions
+  	  root
+  	    keys
+  	      a = <nested>
+
+  	  nested
+  	    keys
+  	      b = <wow>
+
+  	  wow
+  	    required keys
+  	      d = .*
+  	    keys
+  	      e = .*
+  = """conl
+    a
+      b
+        ; d,e
+docs
+  = """conl
+  	root = <root>
+  	definitions
+  	  root
+  	    keys
+  	      a
+  	        matches = hello
+  	        docs = Hello!
+  = """conl
+    ; a "Hello!"
+
+exclusive one ofs
+  = """conl
+    root = <root>
+    definitions
+      root
+        keys
+          a = <nested>
+      nested
+        one of
+          = <b map>
+          = <c map>
+      b map
+        required keys
+          b = .*
+        keys
+          d = .*
+      c map
+        required keys
+          c = .*
+
+  = """conl
+    a
+      ; d
+      b = 1

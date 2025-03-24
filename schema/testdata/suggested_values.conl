@@ -60,3 +60,19 @@ ceci une pipe
           a = one|two|three
   = """conl
     a ; one,three,two
+
+docs
+  = """conl
+    root = <root>
+    definitions
+      root
+        keys
+          a = <test>
+
+      test
+        one of
+          =
+            matches = a
+            docs = Hello!
+  = """
+    a = ; a "Hello!"

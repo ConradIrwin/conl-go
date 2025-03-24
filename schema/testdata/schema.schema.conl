@@ -1,24 +1,25 @@
 ; A CONL schema describes a set of CONL documents.
 ;
-; It consists of a map of named definitions, each built up of matchers.
+; This schema describes valid schemas (including itself!).
 ;
 root = <schema>
+schema = https://conl.dev/schemas/schema.conl
 definitions
   schema
     required keys
       root
         matches = <matcher>
-        docs = A reference to the definition to match against the root of the document.
+        docs = The definition to match against the root of the document.
       definitions
         matches = <definitions>
-        docs = The definitions which make up the schema.
+        docs = All definitions which make up the schema.
     keys
       schema
         matches = .*
         docs = """markdown
           An (optional) URL or file path to the schema definition that describes this schema.
 
-          For example https://conl.dev/schema/schema.conl
+          For example https://conl.dev/schemas/schema.conl
 
   definitions
     keys
@@ -35,15 +36,15 @@ definitions
     keys
       scalar
         matches = <matcher>
-        docs =  Matches scalars with the given matcher.
+        docs = """markdown
+          Matches scalar values.
 
   one of
     required keys
       one of
         matches = <matcher list>
-        docs = Matches values which match any of the given matchers.
+        docs = Matches all values that match any of the given matchers.
 
-  ; A list definition matcches a list.
   list
     keys
       required items
@@ -54,11 +55,13 @@ definitions
           If `items` is also set, then every required item must exist, and
           the list may have any number of additional items that match `items`.
 
+          If `items` is not set, then the list must have the same number of items
+          as the `required items` list.
+
       items
         matches = <matcher>
         docs = Matches lists where every item matches the given matcher.
 
-  ; A "map" definition matches a CONL map.
   map
     keys
       required keys
@@ -75,14 +78,14 @@ definitions
           Unless `required keys` is also set, this matches empty maps.
 
   value matcher
-    one of
-      ; If a matcher starts with < it is a reference to a definition
-      ; elsewhere in the schema. Values match this matcher if they match
-      ; that definition.
-      = \<(.*)>
-      ; Otherwise, it is a regular expression. Values match this matcher
-      ; if they are scalars that match the regular expression.
-      = [^<].*
+    scalar
+      matches = \<(.*)>|[^<].*
+      docs = """markdown
+        A matcher can either be a reference (<X>) where X is a key in the `definitions` map,
+        or it can be a regular expression to match against scalar values.
+
+        The regular expressions must match the whole string ("foo" matches only "foo", not "food"),
+        and . matches any unicode character (including newline).
 
   documented matcher
     required keys
@@ -91,7 +94,7 @@ definitions
       docs
         matches = .*
         docs = """markdown
-         Documentation for this matcher. This is typically formatted using Markdown.
+         Documentation for this matcher. This is assumed to be Markdown.
 
   matcher
     one of
