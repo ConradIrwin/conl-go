@@ -45,8 +45,8 @@ func Parse(input []byte) (*Schema, error) {
 	return s, nil
 }
 
-// Validate the input against the schema, returning a Result.
-// The result can be queried in various ways to determine properties
+// Validate the input against the schema.
+// The [Result] can be queried in various ways to determine properties
 // of the input document.
 func (s *Schema) Validate(input []byte) *Result {
 	doc := parseDoc(input)
@@ -59,11 +59,10 @@ func (s *Schema) Validate(input []byte) *Result {
 	}
 }
 
-// Validate a CONL document. The `load()` function will be called once. If a top-level "schema"
-// key is present, it's value is passed, otherwise "" is given. If the load function is nil,
-// or returns nil, then [Any] is used. If the load function returns an error it is returned
-// as a ValidationError on either the token providing the schema definition, or the first token
-// in the file, in addition to any errors that would be reported by conl.Parse.
+// Validate a CONL document. If load is nil (or returns nil) then [Any] is used.
+// If the document contains a top-level key 'schema' then its value is passed to load,
+// otherwise load is called with "".
+// The [Result] can be queried for further information about the match.
 func Validate(input []byte, load func(schema string) (*Schema, error)) *Result {
 	doc := parseDoc(input)
 	var schema *Schema
@@ -561,7 +560,7 @@ func (a *attempt) withDuplicate(dup *matcher) *attempt {
 	return a
 }
 
-// A Result is produced when matching a document against a schema.
+// A Result is produced when validating a document against a [Schema].
 type Result struct {
 	raw    map[resultPos][]*attempt
 	score  int
@@ -585,11 +584,8 @@ func (r *Result) Errors() []ValidationError {
 	}
 	result := []ValidationError{}
 	for pos, ms := range r.raw {
-		if msg := buildError(pos, ms); msg != "" {
-			result = append(result, ValidationError{
-				msg: msg,
-				pos: pos,
-			})
+		if ve := validationError(pos, ms); ve.msg != "" {
+			result = append(result, ve)
 		}
 	}
 	slices.SortFunc(result, func(a ValidationError, b ValidationError) int {
@@ -601,14 +597,14 @@ func (r *Result) Errors() []ValidationError {
 	return result
 }
 
-// SuggestedKeys returns possible keys for the map defined on line `lno`
-// (or for the root of the document if lno == 0)
-// If `lno` defines a list, []string{"="}
-func (r *Result) SuggestedKeys(lno int) []*Suggestion {
+// SuggestedKeys returns possible keys for the map defined on line,
+// or for the root of the document if line == 0.
+// If the value defined on this line is a list, "=" is returned.
+func (r *Result) SuggestedKeys(line int) []*Suggestion {
 	possible := []*matcher{}
 	listAllowed := false
 	var val *conlValue
-	for _, m := range r.raw[posForValue(lno)] {
+	for _, m := range r.raw[posForValue(line)] {
 		if m.matcher == nil || m.matcher.resolved == nil {
 			continue
 		}
@@ -653,9 +649,9 @@ func (r *Result) SuggestedKeys(lno int) []*Suggestion {
 	return results
 }
 
-// DocsForKey returns the docs for the key on (1-based) line `lno`
-func (r *Result) DocsForKey(lno int) string {
-	for _, m := range r.raw[posForKey(lno)] {
+// DocsForKey returns the docs for the key on line (1-based)
+func (r *Result) DocsForKey(line int) string {
+	for _, m := range r.raw[posForKey(line)] {
 		if m.matcher != nil {
 			return m.matcher.Docs
 		}
@@ -663,7 +659,7 @@ func (r *Result) DocsForKey(lno int) string {
 	return ""
 }
 
-// DocsForValue returns the docs for the value on (1-based) line `lno`
+// DocsForValue returns the docs for the value on line (1-based)
 func (r *Result) DocsForValue(lno int) string {
 	for _, m := range r.raw[posForValue(lno)] {
 		if m.matcher != nil {
@@ -673,13 +669,13 @@ func (r *Result) DocsForValue(lno int) string {
 	return ""
 }
 
-// SuggestedValues returns possible values for line `lno`
-func (r *Result) SuggestedValues(lno int) []*Suggestion {
+// SuggestedValues returns possible values to autocomplete on line (1-based)
+func (r *Result) SuggestedValues(line int) []*Suggestion {
 	possible := []*matcher{}
 	var key *conlValue
 	var parentLno int
 
-	for _, m := range r.raw[posForKey(lno)] {
+	for _, m := range r.raw[posForKey(line)] {
 		parentLno = m.parentLno
 		key = m.val
 		break
@@ -695,12 +691,12 @@ func (r *Result) SuggestedValues(lno int) []*Suggestion {
 		}
 		d := m.matcher.resolved
 		for k, v := range d.RequiredKeys {
-			if k.validate(key, posForKey(lno)).errCount == 0 {
+			if k.validate(key, posForKey(line)).errCount == 0 {
 				possible = append(possible, v)
 			}
 		}
 		for k, v := range d.Keys {
-			if k.validate(key, posForKey(lno)).errCount == 0 {
+			if k.validate(key, posForKey(line)).errCount == 0 {
 				possible = append(possible, v)
 			}
 		}
@@ -725,6 +721,7 @@ func (r *Result) SuggestedValues(lno int) []*Suggestion {
 	return results
 }
 
+// Suggestion is returned by [Result.SuggestedKeys] or [Result.SuggestedValues]
 type Suggestion struct {
 	Value string
 	Docs  string

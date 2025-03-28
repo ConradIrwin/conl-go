@@ -328,12 +328,12 @@ type parseState struct {
 //
 // The raw tokens are post-processed to maintain the invariants that:
 //   - [Indent] and [Outdent] are always paired correctly
-//   - (igoring [Comment]s) after a [ListItem] or a [MapKey],
+//   - (ignoring [Comment]) after a [ListItem] or a [MapKey],
 //     you will always get one of [Value], [MultilineHint], [NoValue] or [Indent]
 //   - after a [MultilineHint] you will always get a [MultilineValue]
-//   - within  a given section you will only find [ListItem] or [MapKey], not a mix.
+//   - within a given section you will only find [ListItem] or [MapKey], not a mix.
 //
-// Any parse errors are reported in [Token.Error]. The parser is tolerant to errors,
+// Any parse errors are reported in Token.Error. The parser is tolerant to errors,
 // though the resulting document may not be what the user intended, so you should
 // handle errors appropriately.
 func Tokens(input []byte) iter.Seq[Token] {

@@ -36,5 +36,5 @@
 // conl allows map keys to be numbers, bools, or arrays or structs of those types in addition to
 // strings.
 //
-// [CONL]: https://github.com/ConradIrwin/conl
+// [CONL]: https://conl.dev
 package conl

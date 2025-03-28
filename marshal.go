@@ -235,17 +235,16 @@ func Marshal(v any) ([]byte, error) {
 }
 
 // Unmarshaler is implemented by types that want to customize their CONL
-// parsing. The provided iterator can be re-used (for example, using conl.UnmarshalCONL).
+// parsing. The provided iterator can be re-used (for example, using [conl.UnmarshalCONL]).
 // The provided tokens have been pre-processed as described by [Tokens], and additionally
-// filtered such that it only contains `MapKey`, `ListItem`, `Scalar`, `NoValue`, `Indent` and `Outdent`.
-// The first token of the iterator is always MapKey, ListItem, Scalar, or NoValue.
+// filtered such that it only contains [MapKey], [ListItem], [Scalar], [NoValue], [Indent] and [Outdent].
+// The first token of the iterator is always [MapKey], [ListItem], [Scalar], or [NoValue].
 type Unmarshaler interface {
 	UnmarshalCONL(tokens iter.Seq[Token]) error
 }
 
 // Unmarshal updates the value v with the data from the CONL document.
 // v should be a non-nil pointer to a struct, slice, map, interface, array.
-// Unmarshal acts similarly to json.Unmarshal.
 //
 // For struct fields, CONL will first look for the name in a `conl:"name"` tag,
 // then in a `json:"name"` tag, and finally use the snake_case version of the field
@@ -255,7 +254,7 @@ type Unmarshaler interface {
 // a map[string]any, lists will be unmarshalled into []any, and scalars will
 // be unmarshalled to string.
 //
-// If the CONL document is invalid, or doesn't match the type of `v`, then an
+// If the CONL document is invalid, or doesn't match the type of v, then an
 // error will be returned.
 func Unmarshal(data []byte, v any) error {
 	return UnmarshalCONL(Tokens(data), v)

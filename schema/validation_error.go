@@ -10,7 +10,6 @@ import (
 )
 
 // A ValidationError represents a single validation error.
-// Use .Error() to get the message, and use .Lno to get the line number.
 type ValidationError struct {
 	msg string
 	pos resultPos
@@ -26,7 +25,7 @@ func joinWithOr(items []string) string {
 	return strings.Join(items[:len(items)-1], ", ") + " or " + items[len(items)-1]
 }
 
-// Lno returns the 1-indexed line number on which the error occurred.
+// Lno returns the line number (1-based) on which the error occurred.
 func (ve *ValidationError) Lno() int {
 	if ve.pos == 0 {
 		return 1
@@ -81,7 +80,7 @@ func splitLine(line string) (int, int, int, int, int) {
 	return startKey, endKey, startValue, endValue, startComment
 }
 
-// RuneRange returns the 0-based utf-8 based range at which the error
+// RuneRange returns the 0-based range at which the error
 // occurred (assuming that the provided line corresponds to Lno in the
 // original document).
 func (ve *ValidationError) RuneRange(line string) (int, int) {
@@ -102,12 +101,12 @@ func (ve *ValidationError) Msg() string {
 	return ve.msg
 }
 
-// Error implements the error interface
+// Error returns the error message prefixed by the line number.
 func (ve *ValidationError) Error() string {
 	return fmt.Sprintf("%d: %s", ve.Lno(), ve.Msg())
 }
 
-func buildError(pos resultPos, ms []*attempt) string {
+func validationError(pos resultPos, ms []*attempt) ValidationError {
 	topP := 0
 	msg := ""
 
@@ -177,20 +176,20 @@ func buildError(pos resultPos, ms []*attempt) string {
 		}
 	}
 	if topP > 50 {
-		return msg
+		return ValidationError{msg, pos}
 	}
 	if len(expected) > 0 {
 		slices.Sort(expected)
 		expected = slices.Compact(expected)
 
-		return "expected " + joinWithOr(expected)
+		return ValidationError{"expected " + joinWithOr(expected), pos}
 	}
 	if len(missingKeys) > 0 {
 		slices.Sort(missingKeys)
 		missingKeys = slices.Compact(missingKeys)
 
-		return "missing required key " + joinWithOr(missingKeys)
+		return ValidationError{"missing required key " + joinWithOr(missingKeys), pos}
 	}
 
-	return msg
+	return ValidationError{msg, pos}
 }
