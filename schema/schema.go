@@ -320,6 +320,7 @@ func (m *matcher) validate(val *conlValue, pos resultPos) result {
 				combined = appendResult(combined, posForKey(entry.key.Lno), keyAttempt(entry, false, nil))
 				continue
 			}
+			combined = appendResult(combined, posForKey(entry.key.Lno), keyAttempt(entry, true, nil))
 			if ix < len(d.RequiredItems) {
 				itemResult := d.RequiredItems[ix].validate(entry.value, posForValue(entry.key.Lno))
 				combined = appendAllResults(combined, itemResult)
@@ -690,6 +691,19 @@ func (r *Result) SuggestedValues(line int) []*Suggestion {
 			continue
 		}
 		d := m.matcher.resolved
+		if key.Scalar.Kind == conl.ListItem {
+			for ix, e := range m.val.List {
+				if e.key == key.Scalar {
+					if ix < len(d.RequiredItems) {
+						possible = append(possible, d.RequiredItems[ix])
+					} else if d.Items != nil {
+						possible = append(possible, d.Items)
+					}
+				}
+			}
+			continue
+		}
+
 		for k, v := range d.RequiredKeys {
 			if k.validate(key, posForKey(line)).errCount == 0 {
 				possible = append(possible, v)

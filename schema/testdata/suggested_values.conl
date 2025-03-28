@@ -76,3 +76,24 @@ docs
             docs = Hello!
   = """
     a = ; a "Hello!"
+
+lists
+  = """conl
+    root = <root>
+    definitions
+      root
+        keys
+          test .* = <test>
+
+      test
+        required items
+          =
+            matches = hello
+            docs = ZOMG
+        items = wow|there
+  = """
+    test a
+      = ; hello "ZOMG"
+    test b
+      = hello
+      = ; there,wow
