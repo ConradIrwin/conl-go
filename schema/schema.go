@@ -652,9 +652,9 @@ func (r *Result) SuggestedKeys(line int) []*Suggestion {
 
 // DocsForKey returns the docs for the key on line (1-based)
 func (r *Result) DocsForKey(line int) string {
-	for _, m := range r.raw[posForKey(line)] {
-		if m.matcher != nil {
-			return m.matcher.Docs
+	for _, attempt := range r.raw[posForKey(line)] {
+		if attempt.matcher != nil && attempt.ok {
+			return attempt.matcher.Docs
 		}
 	}
 	return ""
@@ -662,9 +662,9 @@ func (r *Result) DocsForKey(line int) string {
 
 // DocsForValue returns the docs for the value on line (1-based)
 func (r *Result) DocsForValue(lno int) string {
-	for _, m := range r.raw[posForValue(lno)] {
-		if m.matcher != nil {
-			return m.matcher.Docs
+	for _, attempt := range r.raw[posForValue(lno)] {
+		if attempt.matcher != nil && attempt.ok {
+			return attempt.matcher.Docs
 		}
 	}
 	return ""

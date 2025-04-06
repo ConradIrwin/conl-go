@@ -292,6 +292,13 @@ definitions
 	if docs != expected {
 		t.Fatalf("expected docs: %#v, got: %#v", expected, docs)
 	}
+
+	docs := sch.Validate([]byte("b = hello")).DocsForKey(1)
+	expected := ""
+	if docs != expected {
+		t.Fatalf("expected docs: %#v, got: %#v", expected, docs)
+	}
+}
 }
 
 func TestDocs(t *testing.T) {
