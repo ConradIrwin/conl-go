@@ -1,4 +1,4 @@
-package schema
+package schema_test
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ConradIrwin/conl-go"
+	"github.com/ConradIrwin/conl-go/schema"
 )
 
 func TestSchemaSelf(t *testing.T) {
@@ -21,11 +22,11 @@ func TestSchemaSelf(t *testing.T) {
 		t.Fatalf("Failed to read schema.conl: %v", err)
 	}
 
-	schemaSchema, err := Parse(schemaBytes)
+	schemaSchema, err := schema.Parse(schemaBytes)
 	if err != nil {
 		t.Fatalf("couldn't parse schema: %v", err)
 	}
-	anySchema, err := Parse(anyBytes)
+	anySchema, err := schema.Parse(anyBytes)
 	if err != nil {
 		t.Fatalf("couldn't parse schema: %v", err)
 	}
@@ -60,9 +61,9 @@ func TestSchemaSelf(t *testing.T) {
 	}
 }
 
-var metaSchema *Schema
+var metaSchema *schema.Schema
 
-func examples(t *testing.T, fileName string, run func(*testing.T, *Schema, []byte)) {
+func examples(t *testing.T, fileName string, run func(*testing.T, *schema.Schema, []byte)) {
 	t.Helper()
 
 	examples := map[string][]string{}
@@ -78,7 +79,7 @@ func examples(t *testing.T, fileName string, run func(*testing.T, *Schema, []byt
 	if err != nil {
 		t.Fatalf("Failed to read schema.schema.conl: %v", err)
 	}
-	metaSchema, err := Parse(schemaInput)
+	metaSchema, err := schema.Parse(schemaInput)
 	if err != nil {
 		t.Fatalf("couldn't parse schema.schema.conl: %v", err)
 	}
@@ -93,7 +94,7 @@ func examples(t *testing.T, fileName string, run func(*testing.T, *Schema, []byt
 				t.Fatal("schema validation failed")
 			}
 
-			schema, err := Parse([]byte(example[0]))
+			schema, err := schema.Parse([]byte(example[0]))
 			if err != nil {
 				t.Fatalf("couldn't parse schema: %v", err)
 			}
@@ -105,7 +106,7 @@ func examples(t *testing.T, fileName string, run func(*testing.T, *Schema, []byt
 }
 
 func TestSchema(t *testing.T) {
-	examples(t, "testdata/example_schemas.conl", func(t *testing.T, schema *Schema, input []byte) {
+	examples(t, "testdata/example_schemas.conl", func(t *testing.T, schema *schema.Schema, input []byte) {
 		expected := []string{}
 		for token := range conl.Tokens(input) {
 			if token.Kind == conl.Comment {
@@ -141,7 +142,7 @@ func TestSchema(t *testing.T) {
 }
 
 func TestSuggestedValues(t *testing.T) {
-	examples(t, "testdata/suggested_values.conl", func(t *testing.T, schema *Schema, input []byte) {
+	examples(t, "testdata/suggested_values.conl", func(t *testing.T, schema *schema.Schema, input []byte) {
 		result := schema.Validate(input)
 
 		for token := range conl.Tokens(input) {
@@ -200,7 +201,7 @@ func TestSplitLine(t *testing.T) {
 		"|=|",
 	} {
 		input, a, b, c, d, e := processString(string)
-		startKey, endKey, startValue, endValue, startComment := splitLine(input)
+		startKey, endKey, startValue, endValue, startComment := schema.SplitLine(input)
 		if startKey != a || endKey != b || startValue != c || endValue != d || startComment != e {
 			t.Errorf("%s: expected: %d, %d, %d, %d, %d, got: %d, %d, %d, %d, %d", input, a, b, c, d, e, startKey, endKey, startValue, endValue, startComment)
 		}
@@ -208,23 +209,23 @@ func TestSplitLine(t *testing.T) {
 }
 
 func TestLoad(t *testing.T) {
-	if !Validate([]byte{}, func(schema string) (*Schema, error) {
+	if !schema.Validate([]byte{}, func(schema string) (*schema.Schema, error) {
 		return nil, nil
 	}).Valid() {
 		t.Fatalf("empty document should validate")
 	}
 
-	if !Validate([]byte{}, func(schema string) (*Schema, error) {
+	if !schema.Validate([]byte{}, func(schema string) (*schema.Schema, error) {
 		return nil, fmt.Errorf("wow")
 	}).Valid() {
 		t.Fatalf("empty document should validate")
 	}
 
-	if len(Validate([]byte(`"`), nil).Errors()) != 1 {
+	if len(schema.Validate([]byte(`"`), nil).Errors()) != 1 {
 		t.Fatalf("isolated quote should not validate")
 	}
 
-	errs := Validate([]byte("a\n\""), func(schema string) (*Schema, error) {
+	errs := schema.Validate([]byte("a\n\""), func(schema string) (*schema.Schema, error) {
 		return nil, fmt.Errorf("failed to load schema")
 	}).Errors()
 	if len(errs) != 2 {
@@ -242,7 +243,7 @@ func TestLoad(t *testing.T) {
 }
 
 func TestSuggestedKeys(t *testing.T) {
-	examples(t, "testdata/suggested_keys.conl", func(t *testing.T, schema *Schema, input []byte) {
+	examples(t, "testdata/suggested_keys.conl", func(t *testing.T, schema *schema.Schema, input []byte) {
 		result := schema.Validate(input)
 
 		for token := range conl.Tokens(input) {
@@ -274,7 +275,7 @@ func TestSuggestedKeys(t *testing.T) {
 }
 
 func TestDocsForKey(t *testing.T) {
-	sch, err := Parse([]byte(`
+	sch, err := schema.Parse([]byte(`
 root = <root>
 definitions
   root
@@ -293,16 +294,15 @@ definitions
 		t.Fatalf("expected docs: %#v, got: %#v", expected, docs)
 	}
 
-	docs := sch.Validate([]byte("b = hello")).DocsForKey(1)
-	expected := ""
+	docs = sch.Validate([]byte("b = hello")).DocsForKey(1)
+	expected = ""
 	if docs != expected {
 		t.Fatalf("expected docs: %#v, got: %#v", expected, docs)
 	}
 }
-}
 
 func TestDocs(t *testing.T) {
-	sch, err := Parse([]byte(`
+	sch, err := schema.Parse([]byte(`
 root = <root>
 definitions
   root

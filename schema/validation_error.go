@@ -36,7 +36,7 @@ func (ve *ValidationError) Lno() int {
 var quotedLiteral = regexp.MustCompile(`^"(?:[^\\"]|\\.)*"`)
 
 // returns the range for the key or list item, value, and comment
-func splitLine(line string) (int, int, int, int, int) {
+func SplitLine(line string) (int, int, int, int, int) {
 	trimmed := strings.TrimLeft(line, " \t")
 	startKey := len(line) - len(trimmed)
 	trimmed =
@@ -84,7 +84,7 @@ func splitLine(line string) (int, int, int, int, int) {
 // occurred (assuming that the provided line corresponds to Lno in the
 // original document).
 func (ve *ValidationError) RuneRange(line string) (int, int) {
-	startKey, endKey, startValue, endValue, _ := splitLine(line)
+	startKey, endKey, startValue, endValue, _ := SplitLine(line)
 	if ve.pos == 0 {
 		return startKey, endValue
 	}
