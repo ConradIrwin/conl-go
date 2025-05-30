@@ -301,9 +301,6 @@ func (m *matcher) validate(val *conlValue, pos resultPos) result {
 		var combined result
 		for _, matcher := range d.OneOf {
 			result := matcher.validate(val, pos)
-			if result.firstErr == success {
-				return result
-			}
 			combined = pickBestResult(combined, result)
 		}
 		return combined

@@ -103,3 +103,39 @@ exclusive one ofs
     a
       ; d
       b = 1
+
+schema schema
+  = """conl
+    root = <schema>
+    definitions
+      schema
+        required keys
+          definitions = <definitions>
+        keys
+          schema = .*
+
+      definitions
+        keys
+          .* = <definition>
+
+      definition
+        one of
+          = <scalar>
+          = <map>
+
+      scalar
+        keys
+          scalar = .*
+
+      map
+        keys
+          keys = <matcher map>
+
+      matcher map
+        keys
+          .* = .*
+
+  = """conl
+    definitions
+      root
+        ; keys,scalar
