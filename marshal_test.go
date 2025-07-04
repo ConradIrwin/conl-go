@@ -286,17 +286,17 @@ users
 			name: "conl schema example",
 			input: `
 definitions
-  one of
+  any of
     required keys
-      one of
+      any of
 
   list
 			`,
 			target: &schema{},
 			expected: schema{Definitions: map[string]*definition{
 				"list": nil,
-				"one of": {RequiredKeys: map[string]*matcher{
-					"one of": nil,
+				"any of": {RequiredKeys: map[string]*matcher{
+					"any of": nil,
 				}}},
 			},
 		},

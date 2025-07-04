@@ -11,14 +11,14 @@ import (
 
 func main() {
 	schemaFile := flag.String("schema", "", "CONL schema file to validate against")
+	flag.StringVar(schemaFile, "s", "", "(alias for --schema)")
 	flag.Parse()
 
-	if *schemaFile == "" {
-		fmt.Fprintln(os.Stderr, "Error: --schema flag is required")
+	if *schemaFile == "" || len(flag.Args()) > 1 {
+		fmt.Fprintln(os.Stderr, "Usage: conlschema --schema <schema> [input]")
 		os.Exit(1)
 	}
 
-	// Read schema file
 	schemaBytes, err := os.ReadFile(*schemaFile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading schema file: %v\n", err)
@@ -31,11 +31,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Read stdin
-	inputBytes, err := io.ReadAll(os.Stdin)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading stdin: %v\n", err)
-		os.Exit(1)
+	var inputBytes []byte
+	if len(flag.Args()) == 1 {
+		inputBytes, err = os.ReadFile(flag.Arg(0))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading %v: %v\n", flag.Arg(0), err)
+			os.Exit(1)
+		}
+	} else {
+		inputBytes, err = io.ReadAll(os.Stdin)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading stdin: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	statusCode := 0

@@ -26,11 +26,11 @@ definitions
       .* = <definition>
 
   definition
-    one of
+    any of
       = <scalar>
       = <map>
       = <list>
-      = <one of>
+      = <any of>
 
   scalar
     keys
@@ -39,9 +39,9 @@ definitions
         docs = """markdown
           Matches scalar values.
 
-  one of
+  any of
     required keys
-      one of
+      any of
         matches = <matcher list>
         docs = Matches all values that match any of the given matchers.
 
@@ -97,7 +97,7 @@ definitions
          Documentation for this matcher. This is assumed to be Markdown.
 
   matcher
-    one of
+    any of
       = <value matcher>
       = <documented matcher>
 

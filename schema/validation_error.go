@@ -168,7 +168,7 @@ func validationError(pos resultPos, ms []*attempt) ValidationError {
 				} else {
 					expected = append(expected, "a list")
 				}
-			} else if d.Scalar != nil || d.OneOf != nil {
+			} else if d.Scalar != nil || d.AnyOf != nil {
 				panic("unreachable")
 			} else {
 				expected = append(expected, "no value")

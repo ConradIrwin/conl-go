@@ -109,12 +109,12 @@ referenced map
     test
       code home = 123r ; 14-18 expected [0-9]+
 
-one of scalars
+any of scalars
   = """conl
     root = <root>
     definitions
       test
-        one of
+        any of
           = a
           = b
           = c
@@ -126,7 +126,7 @@ one of scalars
     test b = b
     test d = d ; 9-10 expected a, b or c
 
-one of required keys
+any of required keys
   = """conl
     root = <root>
     definitions
@@ -137,7 +137,7 @@ one of required keys
         required keys
           type = b
       test
-        one of
+        any of
           = <a>
           = <b>
       root
@@ -151,7 +151,7 @@ one of required keys
     test c
       type = c ; 9-10 expected a or b
 
-one of required keys more
+any of required keys more
   = """conl
     root = <root>
     definitions
@@ -162,7 +162,7 @@ one of required keys more
         required keys
           b = true
       test
-        one of
+        any of
           = <a>
           = <b>
       root
@@ -187,7 +187,7 @@ incompatibility error
         keys
           b = true
       test
-        one of
+        any of
           = <a>
           = <b>
       root
@@ -214,7 +214,7 @@ confusing incompatibility error
           b = true
           c = true
       test
-        one of
+        any of
           = <a>
           = <b>
       root
@@ -239,7 +239,7 @@ simple lists
         items = <bool>
 
       bool
-        one of
+        any of
           = true
           = false
 
@@ -303,7 +303,7 @@ mixed types
     root = <root>
     definitions
       test
-        one of
+        any of
           = true
           = <data>
       data
@@ -321,7 +321,7 @@ mixed types list
     root = <root>
     definitions
       test
-        one of
+        any of
           = <map>
           = <list>
       map
@@ -417,7 +417,7 @@ any schema
     root = <root>
     definitions
       root
-        one of
+        any of
           = <map>
           = <list>
           = <scalar>
@@ -455,24 +455,24 @@ schema
           .* = <definition>
           schema = .*
       definition
-        one of
+        any of
           = <scalar>
           = <map>
           = <list>
-          = <one of>
+          = <any of>
       matcher
         scalar = .*
       scalar
         required keys
           scalar = <matcher>
-      one of
+      any of
         required keys
-          one of = <matcher list>
+          any of = <matcher list>
 
       matcher list
         items = <matcher>
       map
-        one of
+        any of
           = <required map>
           = <allowed map>
       required map
@@ -487,7 +487,7 @@ schema
         keys
           <matcher> = <matcher>
       list
-        one of
+        any of
           = <required list>
           = <allowed list>
       required list
@@ -509,7 +509,7 @@ reduced schema
     root = <root>
     definitions
       root
-        one of
+        any of
           = <map>
           = <list>
       map
@@ -520,3 +520,26 @@ reduced schema
           items = <list>
   = """conl
     keys = value ; 7-12 expected a map
+
+empty definitions
+  = """conl
+    root = <root>
+    definitions
+      root
+        keys
+          no value 1.* = <no value 1>
+          no value 2.* = <no value 2>
+          no value 3.* = <no value 3>
+
+      no value 1
+      no value 2
+        required items
+      no value 3
+        keys
+  = """conl
+    no value 1
+    no value 1b = oops ; 14-18 expected no value
+    no value 2
+    no value 2b = oops ; 14-18 expected no value
+    no value 3
+    no value 3b = oops ; 14-18 expected no value

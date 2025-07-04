@@ -329,7 +329,7 @@ type parseState struct {
 // The raw tokens are post-processed to maintain the invariants that:
 //   - [Indent] and [Outdent] are always paired correctly
 //   - (ignoring [Comment]) after a [ListItem] or a [MapKey],
-//     you will always get one of [Value], [MultilineHint], [NoValue] or [Indent]
+//     you will always get any of [Value], [MultilineHint], [NoValue] or [Indent]
 //   - after a [MultilineHint] you will always get a [MultilineValue]
 //   - within a given section you will only find [ListItem] or [MapKey], not a mix.
 //

@@ -1,7 +1,7 @@
 root = <any>
 definitions
   any
-    one of
+    any of
       = <map>
       = <list>
       = .*

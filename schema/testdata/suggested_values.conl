@@ -8,7 +8,7 @@ simple
   = """conl
     a = ; test
 
-one of
+any of
   = """conl
     root = <root>
     definitions
@@ -16,19 +16,19 @@ one of
         keys
           a = <test>
       test
-        one of
+        any of
           = ca
           = cb
           = cc
   = """conl
     a = ; ca,cb,cc
 
-one of nested
+any of nested
   = """conl
     root = <root>
     definitions
       root
-        one of
+        any of
           = <a>
           = <b>
       a
@@ -70,7 +70,7 @@ docs
           a = <test>
 
       test
-        one of
+        any of
           =
             matches = a
             docs = Hello!

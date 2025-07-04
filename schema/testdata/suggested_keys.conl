@@ -26,7 +26,7 @@ nested
     a
       ; b,c
 
-one ofs
+any ofs
   = """conl
   	root = <root>
   	definitions
@@ -34,7 +34,7 @@ one ofs
   	    keys
   	      a = <nested>
   	  nested
-  	    one of
+  	    any of
   	      = <b map>
   	      = <c map>
   	  b map
@@ -79,7 +79,7 @@ docs
   = """conl
     ; a "Hello!"
 
-exclusive one ofs
+exclusive any ofs
   = """conl
     root = <root>
     definitions
@@ -87,7 +87,7 @@ exclusive one ofs
         keys
           a = <nested>
       nested
-        one of
+        any of
           = <b map>
           = <c map>
       b map
@@ -119,7 +119,7 @@ schema schema
           .* = <definition>
 
       definition
-        one of
+        any of
           = <scalar>
           = <map>
 

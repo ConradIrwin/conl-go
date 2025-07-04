@@ -112,7 +112,7 @@ func Any() *Schema {
 root = <any>
 definitions
   any
-    one of
+    any of
       = <map>
       = <list>
       = .*
@@ -136,7 +136,7 @@ type definition struct {
 
 	Scalar *matcher `conl:"scalar"`
 
-	OneOf []*matcher `conl:"one of"`
+	AnyOf []*matcher `conl:"any of"`
 
 	Keys         map[*matcher]*matcher `conl:"keys"`
 	RequiredKeys map[*matcher]*matcher `conl:"required keys"`
@@ -225,6 +225,8 @@ func (m *matcher) resolve(s *Schema, seen []string) error {
 		return fmt.Errorf("<%s> is not defined", m.reference)
 	} else if slices.Contains(seen, m.reference) {
 		return fmt.Errorf("<%s> is defined in terms of itself", m.reference)
+	} else if d == nil {
+		d = &definition{}
 	}
 	m.resolved = d
 
@@ -232,19 +234,19 @@ func (m *matcher) resolve(s *Schema, seen []string) error {
 		return nil
 	}
 	count := sumIf(d.Scalar != nil,
-		d.OneOf != nil,
+		d.AnyOf != nil,
 		d.Keys != nil || d.RequiredKeys != nil,
 		d.Items != nil || d.RequiredItems != nil)
 
 	if count > 1 {
-		return fmt.Errorf("invalid definition %v: cannot mix scalar, one of, (required) keys, and (required) items", d.Name)
+		return fmt.Errorf("invalid definition %v: cannot mix scalar, any of, (required) keys, and (required) items", d.Name)
 	}
 	if d.Scalar != nil {
 		if err := d.Scalar.resolve(s, seen); err != nil {
 			return err
 		}
 	}
-	for _, choice := range d.OneOf {
+	for _, choice := range d.AnyOf {
 		if err := choice.resolve(s, seen); err != nil {
 			return err
 		}
@@ -297,9 +299,9 @@ func (m *matcher) validate(val *conlValue, pos resultPos) result {
 		return d.Scalar.validate(val, pos)
 	}
 
-	if d.OneOf != nil {
+	if d.AnyOf != nil {
 		var combined result
-		for _, matcher := range d.OneOf {
+		for _, matcher := range d.AnyOf {
 			result := matcher.validate(val, pos)
 			combined = pickBestResult(combined, result)
 		}
@@ -347,7 +349,7 @@ func (m *matcher) validate(val *conlValue, pos resultPos) result {
 				continue
 			}
 			seen[entry.key.Content] = true
-			oneOf := []*matcher{}
+			anyOf := []*matcher{}
 			var keyResult result
 			for k, v := range d.RequiredKeys {
 				keyResult = pickBestResult(keyResult, k.validate(&conlValue{Scalar: entry.key}, posForKey(entry.key.Lno)))
@@ -358,27 +360,27 @@ func (m *matcher) validate(val *conlValue, pos resultPos) result {
 						continue outer
 					}
 					seenRequired[k] = true
-					oneOf = append(oneOf, v)
+					anyOf = append(anyOf, v)
 					break
 				}
 			}
 
-			if len(oneOf) == 0 {
+			if len(anyOf) == 0 {
 				for k, v := range d.Keys {
 					newResult := k.validate(&conlValue{Scalar: entry.key}, posForKey(entry.key.Lno))
 					if newResult.firstErr == success {
-						oneOf = append(oneOf, v)
+						anyOf = append(anyOf, v)
 					}
 					keyResult = pickBestResult(keyResult, newResult)
 				}
 			}
 			combined = appendAllResults(combined, keyResult)
-			if len(oneOf) == 0 {
+			if len(anyOf) == 0 {
 				continue
 			}
 
 			var valueResult result
-			for _, matcher := range oneOf {
+			for _, matcher := range anyOf {
 				result := matcher.validate(entry.value, posForValue(entry.key.Lno))
 				valueResult = pickBestResult(valueResult, result)
 			}
@@ -421,8 +423,8 @@ func (m *matcher) suggestedValues() []*Suggestion {
 		suggestions = append(suggestions, d.Scalar.suggestedValues()...)
 	}
 
-	for _, oneOf := range d.OneOf {
-		suggestions = append(suggestions, oneOf.suggestedValues()...)
+	for _, anyOf := range d.AnyOf {
+		suggestions = append(suggestions, anyOf.suggestedValues()...)
 	}
 
 	for _, s := range suggestions {
