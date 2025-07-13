@@ -281,7 +281,11 @@ func tokenize(input string) iter.Seq[Token] {
 				indicator, rest := splitLiteral(indicator, false)
 				multiline = true
 				multilineLno = lno
-				if !yield(Token{Lno: lno, Kind: MultilineHint, Content: indicator, Error: checkUtf8(indicator)}) {
+				err := checkUtf8(indicator)
+				if strings.HasPrefix(indicator, "\"") {
+					err = fmt.Errorf("characters after quotes")
+				}
+				if !yield(Token{Lno: lno, Kind: MultilineHint, Content: indicator, Error: err}) {
 					return
 				}
 
