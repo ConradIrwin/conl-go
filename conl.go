@@ -122,7 +122,7 @@ func decodeMultiline(input string) (string, string) {
 
 var (
 	literalRegex = regexp.MustCompile(`^"((?:\\.|[^\\"])*)"`)
-	escapeRegex  = regexp.MustCompile(`\\(\{.*\}?|.)`)
+	escapeRegex  = regexp.MustCompile(`\\(\{[^}]*\}?|.)`)
 )
 
 func decodeLiteral(input string) (string, error) {

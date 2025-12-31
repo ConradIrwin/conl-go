@@ -94,6 +94,11 @@ b = "\{D800}"
 1: invalid escape code: \{}
 
 ===
+a = "\{201C"
+---
+1: invalid escape code: \{201C
+
+===
 b = a
 = b
 ---
